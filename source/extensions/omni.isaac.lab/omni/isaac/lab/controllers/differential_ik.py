@@ -222,12 +222,21 @@ class DifferentialIKController:
             # parameters
             lambda_val = self.cfg.ik_params["lambda_val"]
             # computation
-            jacobian_T = torch.transpose(jacobian, dim0=1, dim1=2)
-            lambda_matrix = (lambda_val**2) * torch.eye(n=jacobian.shape[1], device=self._device)
-            delta_joint_pos = (
-                jacobian_T @ torch.inverse(jacobian @ jacobian_T + lambda_matrix) @ delta_pose.unsqueeze(-1)
-            )
+            jacobian_T = torch.transpose(jacobian, dim0=1, dim1=2) # n, q, 6
+            lambda_matrix = (lambda_val**2) * torch.eye(n=6, device=self._device)
+            kin_matrix = torch.bmm(jacobian, jacobian_T) + lambda_matrix[None, ...]  # n, 6, 6
+            delta_joint_pos = torch.bmm(jacobian_T, torch.linalg.solve(kin_matrix, delta_pose.unsqueeze(-1)))
             delta_joint_pos = delta_joint_pos.squeeze(-1)
+        # elif self.cfg.ik_method == "dls":  # damped least squares
+        #     # parameters
+        #     lambda_val = self.cfg.ik_params["lambda_val"]
+        #     # computation
+        #     jacobian_T = torch.transpose(jacobian, dim0=1, dim1=2)
+        #     lambda_matrix = (lambda_val**2) * torch.eye(n=jacobian.shape[1], device=self._device)
+        #     delta_joint_pos = (
+        #         jacobian_T @ torch.inverse(jacobian @ jacobian_T + lambda_matrix) @ delta_pose.unsqueeze(-1)
+        #     )
+        #     delta_joint_pos = delta_joint_pos.squeeze(-1)
         else:
             raise ValueError(f"Unsupported inverse-kinematics method: {self.cfg.ik_method}")
 
