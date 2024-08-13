@@ -136,7 +136,7 @@ class RewardManager(ManagerBase):
             if term_cfg.weight == 0.0:
                 continue
             # compute term's value
-            value = term_cfg.func(self._env, **term_cfg.params) * term_cfg.weight * dt
+            value = term_cfg.func(self._env, **term_cfg.params) * term_cfg.weight # * dt
             # update total reward
             self._reward_buf += value
             # update episodic sum
