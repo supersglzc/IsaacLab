@@ -122,7 +122,7 @@ class RewardManager(ManagerBase):
         # return logged information
         return extras
 
-    def compute(self, dt: float) -> torch.Tensor:
+    def compute(self, dt: float) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Computes the reward signal as a weighted sum of individual terms.
 
         This function calls each reward term managed by the class and adds them to compute the net
@@ -136,6 +136,7 @@ class RewardManager(ManagerBase):
         """
         # reset computation
         self._reward_buf[:] = 0.0
+        self._detailed_reward_buf = {}
         # iterate over all the reward terms
         for name, term_cfg in zip(self._term_names, self._term_cfgs):
             # skip if weight is zero (kind of a micro-optimization)
@@ -147,8 +148,10 @@ class RewardManager(ManagerBase):
             self._reward_buf += value
             # update episodic sum
             self._episode_sums[name] += value
+            # update detailed reward buffer
+            self._detailed_reward_buf[name] = value
 
-        return self._reward_buf
+        return self._reward_buf, self._detailed_reward_buf
 
     """
     Operations - Term settings.
