@@ -43,10 +43,10 @@ x-default-isaac-lab-volumes: &default-isaac-lab-volumes
   - type: bind
     source: ../tools
     target: ${DOCKER_ISAACLAB_PATH}/tools
-  - type: bind
+  - type: volume
     source: /home/steven/code/bidex
     target: ${DOCKER_ISAACLAB_PATH}/../bidex
-  - type: bind
+  - type: volume
     source: /home/steven/code/pql
     target: ${DOCKER_ISAACLAB_PATH}/../pql
     # The effect of these volumes is twofold:
