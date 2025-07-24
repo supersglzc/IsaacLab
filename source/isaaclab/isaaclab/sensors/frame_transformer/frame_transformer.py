@@ -94,6 +94,17 @@ class FrameTransformer(SensorBase):
         if env_ids is None:
             env_ids = ...
 
+    def update_target_frame_offset_quat(self, target_frame_offset_quat: torch.Tensor, env_ids: Sequence[int] | None = None):
+        """Updates the source frame offset quaternion.
+        
+        Args:
+            target_frame_offset_quat: The new target frame offset quaternion.
+            env_ids: The environment ids to update.
+        """
+        if env_ids is None:
+            env_ids = ...
+        self._target_frame_offset_quat[env_ids] = target_frame_offset_quat
+
     """
     Implementation.
     """
