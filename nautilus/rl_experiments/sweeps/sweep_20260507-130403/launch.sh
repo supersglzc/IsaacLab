@@ -52,6 +52,13 @@ echo "[cmd] apptainer exec --nv --bind $REPO_ROOT:/repo/IsaacLab --pwd /repo/Isa
 # EULA / privacy prompts on first-run; required for non-interactive SLURM jobs.
 # --writable-tmpfs gives Kit a RAM-backed overlay so its writes to
 # /opt/venv/.../isaacsim/kit/{cache,data} succeed (the .sif is read-only).
+# HTTP(S)_PROXY: Alex compute nodes have NO direct outbound internet; FAU's
+# central proxy (proxy.nhr.fau.de:80) is required for Kit to fetch Factory's
+# USD assets from S3 + for wandb to upload metrics.
+export HTTP_PROXY=${HTTP_PROXY:-http://proxy.nhr.fau.de:80}
+export HTTPS_PROXY=${HTTPS_PROXY:-http://proxy.nhr.fau.de:80}
+export NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,.fau.de,.nhr.fau.de,.rrze.uni-erlangen.de}
+
 apptainer exec \
     --nv \
     --writable-tmpfs \
@@ -60,5 +67,11 @@ apptainer exec \
     --env OMNI_KIT_ACCEPT_EULA=YES \
     --env PRIVACYACCEPT=YES \
     --env WANDB_API_KEY="$WANDB_API_KEY" \
+    --env HTTP_PROXY="$HTTP_PROXY" \
+    --env HTTPS_PROXY="$HTTPS_PROXY" \
+    --env http_proxy="$HTTP_PROXY" \
+    --env https_proxy="$HTTPS_PROXY" \
+    --env NO_PROXY="$NO_PROXY" \
+    --env no_proxy="$NO_PROXY" \
     "$SIF" \
     bash -c "$CMD"
