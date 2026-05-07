@@ -50,8 +50,11 @@ echo "[cmd] apptainer exec --nv --bind $REPO_ROOT:/repo/IsaacLab --pwd /repo/Isa
 
 # OMNI_KIT_ACCEPT_EULA=YES + PRIVACYACCEPT=YES skip the interactive Omniverse
 # EULA / privacy prompts on first-run; required for non-interactive SLURM jobs.
+# --writable-tmpfs gives Kit a RAM-backed overlay so its writes to
+# /opt/venv/.../isaacsim/kit/{cache,data} succeed (the .sif is read-only).
 apptainer exec \
     --nv \
+    --writable-tmpfs \
     --bind "$REPO_ROOT:/repo/IsaacLab" \
     --pwd /repo/IsaacLab \
     --env OMNI_KIT_ACCEPT_EULA=YES \
