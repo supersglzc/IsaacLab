@@ -36,12 +36,12 @@ uv pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.7.0 t
 uv pip install --extra-index-url https://pypi.nvidia.com 'isaacsim[all,extscache]==5.1.0'
 uv pip install toml
 # IsaacLab editable install — order matches env-generator detection from this fork's source/.
-uv pip install --editable /home/steven/code/agentic/IsaacLab/source/isaaclab
-uv pip install --editable /home/steven/code/agentic/IsaacLab/source/isaaclab_assets
-uv pip install --editable /home/steven/code/agentic/IsaacLab/source/isaaclab_tasks
-uv pip install --editable '/home/steven/code/agentic/IsaacLab/source/isaaclab_rl[all]'
-uv pip install --editable '/home/steven/code/agentic/IsaacLab/source/isaaclab_mimic[all]'
-uv pip install --editable /home/steven/code/agentic/IsaacLab/source/isaaclab_contrib
+uv pip install --editable ./source/isaaclab
+uv pip install --editable ./source/isaaclab_assets
+uv pip install --editable ./source/isaaclab_tasks
+uv pip install --editable './source/isaaclab_rl[all]'
+uv pip install --editable './source/isaaclab_mimic[all]'
+uv pip install --editable ./source/isaaclab_contrib
 uv pip install pynvml
 
 # --- Step 4: nautilus extras (logging + experiment tracking + RL deps) ---
