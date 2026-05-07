@@ -1,0 +1,64 @@
+# PPO — CPU vec-env defaults (stable-baselines3 path).
+#
+# Parameter names mirror stable_baselines3.PPO.__init__ — see
+# https://stable-baselines3.readthedocs.io/en/master/modules/ppo.html
+#
+# >>> FILL IN: maintainer-tuned values for the isaaclab benchmark.
+# >>> The values below are SB3 defaults — they will train but rarely best-tune.
+# >>> /rl-experiment tune will explore the search-space block at the bottom.
+
+name: ppo
+algo: ppo
+task: null            # override at CLI: task=<id>
+seed: 0
+n_envs: 8                 # parallel envs (SB3 SubprocVecEnv / custom_torch GymVecEnvWrapper)
+total_timesteps: 1_000_000  # training budget; CLI: total_timesteps=N
+wandb: null                # null = disabled; CLI: wandb=<project_name>
+log_interval: 2048         # log to W&B/jsonl every N env-steps (≈ once per rollout if = n_steps * n_envs)
+
+# ---- Eval / render extras (consumed by eval.py / render.py; ignored by train) ----
+checkpoint: null           # eval/render: required, set via CLI (checkpoint=<path>)
+n_episodes: 10             # eval: how many full episodes to evaluate
+render_max_steps: 1000     # render: cap on rollout length
+
+# ---- Algorithm hyperparameters ----
+learning_rate: 3.0e-4
+n_steps: 2048             # rollout horizon per env (custom_torch alias `horizon_len` removed — use `n_steps`)
+batch_size: 64
+n_epochs: 10
+gamma: 0.99
+gae_lambda: 0.95
+clip_range: 0.2
+clip_range_vf: null
+ent_coef: 0.0
+vf_coef: 0.5
+max_grad_norm: 0.5
+
+# ---- Policy network (SB3 reads; custom_torch ignores — uses act_class/cri_class) ----
+policy: MlpPolicy            # use MultiInputPolicy if obs is a Dict
+policy_kwargs:
+  net_arch: [256, 256]
+
+# ---- W&B logging metrics (read by DataLogger callback) ----
+metrics:
+  - rollout/ep_rew_mean
+  - rollout/ep_len_mean
+  - train/loss
+  - train/policy_loss
+  - train/value_loss
+  - train/entropy_loss
+  - train/approx_kl
+  - train/clip_fraction
+  - time/fps
+
+# ---- Tuning search-space (used by suggest_hparams.py) ----
+search_space:
+  learning_rate: { type: log_uniform, low: 1.0e-5, high: 1.0e-3 }
+  n_steps:       { type: choice, values: [512, 1024, 2048, 4096] }
+  batch_size:    { type: choice, values: [32, 64, 128, 256] }
+  gamma:         { type: uniform, low: 0.95, high: 0.999 }
+  gae_lambda:    { type: uniform, low: 0.9, high: 0.99 }
+  clip_range:    { type: choice, values: [0.1, 0.2, 0.3] }
+  ent_coef:      { type: log_uniform, low: 1.0e-6, high: 1.0e-2 }
+  vf_coef:       { type: uniform, low: 0.25, high: 1.0 }
+  max_grad_norm: { type: choice, values: [0.3, 0.5, 1.0] }

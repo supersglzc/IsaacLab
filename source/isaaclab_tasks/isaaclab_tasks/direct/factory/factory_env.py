@@ -381,7 +381,7 @@ class FactoryEnv(DirectRLEnv):
 
         return curr_successes
 
-    def _log_factory_metrics(self, rew_dict, curr_successes):
+    def _log_factory_metrics(self, rew_dict, rew_scales, curr_successes):
         """Keep track of episode statistics and log rewards."""
         # Only log episode success rates at the end of an episode.
         if torch.any(self.reset_buf):
@@ -400,7 +400,7 @@ class FactoryEnv(DirectRLEnv):
             self.extras["success_times"] = success_times
 
         for rew_name, rew in rew_dict.items():
-            self.extras[f"logs_rew_{rew_name}"] = rew.mean()
+            self.extras[f"logs_rew_{rew_name}"] = (rew * rew_scales[rew_name]).mean()
 
     def _get_rewards(self):
         """Update rewards and compute success statistics."""
@@ -418,7 +418,7 @@ class FactoryEnv(DirectRLEnv):
 
         self.prev_actions = self.actions.clone()
 
-        self._log_factory_metrics(rew_dict, curr_successes)
+        self._log_factory_metrics(rew_dict, rew_scales, curr_successes)
         return rew_buf
 
     def _get_factory_rew_dict(self, curr_successes):

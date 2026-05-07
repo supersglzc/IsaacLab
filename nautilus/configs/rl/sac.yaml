@@ -1,0 +1,61 @@
+# SAC — CPU vec-env defaults (stable-baselines3 path).
+#
+# Parameter names mirror stable_baselines3.SAC.__init__ — see
+# https://stable-baselines3.readthedocs.io/en/master/modules/sac.html
+#
+# >>> FILL IN: maintainer-tuned values for the isaaclab benchmark.
+
+name: sac
+algo: sac
+task: null            # override at CLI: task=<id>
+n_envs: 1                 # SAC default; custom_torch supports n_envs>1 with NStepReplay
+total_timesteps: 1_000_000
+max_step: ${.total_timesteps}   # custom_torch alias — allows plain `max_step=N` Hydra override
+wandb: null                # null = disabled; CLI: wandb=<project_name>
+
+# ---- Eval / render extras (consumed by eval.py / render.py; ignored by train) ----
+checkpoint: null           # eval/render: required, set via CLI (checkpoint=<path>)
+n_episodes: 10             # eval: how many full episodes to evaluate
+render_max_steps: 1000     # render: cap on rollout length
+
+# ---- Algorithm hyperparameters ----
+learning_rate: 3.0e-4
+buffer_size: 1_000_000
+batch_size: 256
+tau: 0.005
+gamma: 0.99
+train_freq: 1
+gradient_steps: 1
+update_times: 1           # custom_torch: number of gradient updates per env step
+ent_coef: auto            # "auto", "auto_<initial>", or a float (SB3); custom_torch uses cfg.alpha (null = autotune)
+target_entropy: auto      # "auto" or a float
+learning_starts: 100
+warm_up: 1000             # custom_torch: random-action steps before training kicks in
+nstep: 1                  # custom_torch: n-step return horizon (1 = TD(0))
+
+# ---- Policy network ----
+policy: MlpPolicy
+policy_kwargs:
+  net_arch: [256, 256]
+
+# ---- W&B logging metrics ----
+metrics:
+  - rollout/ep_rew_mean
+  - rollout/ep_len_mean
+  - train/actor_loss
+  - train/critic_loss
+  - train/ent_coef
+  - train/ent_coef_loss
+  - time/fps
+
+# ---- Tuning search-space ----
+search_space:
+  learning_rate:    { type: log_uniform, low: 1.0e-5, high: 1.0e-3 }
+  buffer_size:      { type: choice, values: [100_000, 500_000, 1_000_000] }
+  batch_size:       { type: choice, values: [128, 256, 512, 1024] }
+  tau:              { type: uniform, low: 0.001, high: 0.05 }
+  gamma:            { type: uniform, low: 0.95, high: 0.999 }
+  train_freq:       { type: choice, values: [1, 4, 8] }
+  gradient_steps:   { type: choice, values: [1, 4, 8] }
+  ent_coef:         { type: choice, values: ["auto", 0.01, 0.05, 0.1] }
+  learning_starts:  { type: choice, values: [100, 1_000, 10_000] }

@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-05-05T19:20:40+00:00",
+  "benchmark_name": "isaaclab",
+  "category": "rl",
+  "language": "pytorch",
+  "gpu_sim": true,
+  "tasks": [
+    {
+      "id": "Isaac-Cartpole-Direct-v0",
+      "max_episode_steps": 300,
+      "success_metric": null,
+      "reward_implemented": true,
+      "reward_metric": "episode_return",
+      "smoke_status": "L1+L2 pass"
+    },
+    {
+      "id": "Isaac-Cartpole-v0",
+      "max_episode_steps": 300,
+      "success_metric": null,
+      "reward_implemented": true,
+      "reward_metric": "episode_return",
+      "smoke_status": "L1 pass"
+    },
+    {
+      "id": "Isaac-Velocity-Flat-Anymal-C-v0",
+      "max_episode_steps": 600,
+      "success_metric": null,
+      "reward_implemented": true,
+      "reward_metric": "episode_return",
+      "smoke_status": "L1 pass"
+    },
+    {
+      "id": "Isaac-Reach-Franka-v0",
+      "max_episode_steps": 720,
+      "success_metric": null,
+      "reward_implemented": true,
+      "reward_metric": "episode_return",
+      "smoke_status": "L1+L2 pass"
+    },
+    {
+      "id": "Isaac-Lift-Cube-Franka-v0",
+      "max_episode_steps": 300,
+      "success_metric": "object_lifted",
+      "reward_implemented": true,
+      "reward_metric": "episode_return",
+      "smoke_status": "L1 pass"
+    },
+    {
+      "id": "Isaac-Ant-Direct-v0",
+      "max_episode_steps": 1000,
+      "success_metric": null,
+      "reward_implemented": true,
+      "reward_metric": "episode_return",
+      "smoke_status": "FAIL: missing Nucleus asset (Isaac/5.0/Ant/ant_instanceable.usd) \u2014 articulation root not found. Asset URL incompatibility with bundled Isaac Sim 4.5."
+    },
+    {
+      "id": "Isaac-Humanoid-Direct-v0",
+      "max_episode_steps": 1000,
+      "success_metric": null,
+      "reward_implemented": true,
+      "reward_metric": "episode_return",
+      "smoke_status": "FAIL: missing Nucleus asset (Isaac/5.0 humanoid USD) \u2014 articulation root not found. Asset URL incompatibility with bundled Isaac Sim 4.5."
+    },
+    {
+      "id": "Isaac-Quadcopter-Direct-v0",
+      "max_episode_steps": 500,
+      "success_metric": null,
+      "reward_implemented": true,
+      "reward_metric": "episode_return",
+      "smoke_status": "FAIL: missing Nucleus asset (Isaac/5.0 crazyflie USD) \u2014 articulation root not found. Asset URL incompatibility with bundled Isaac Sim 4.5."
+    }
+  ]
+}

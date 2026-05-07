@@ -1,0 +1,79 @@
+# TD3 — GPU-batched defaults (gpu_sim=true). Used by custom_torch / custom_jax / stable_baseline3.
+
+name: td3
+algo: td3
+task: null
+
+num_envs: 2048
+n_envs: ${.num_envs}
+device: cuda
+sim_device: ${.device}
+rl_device: ${.device}
+graphics_device_id: 0
+seed: 42
+gpu_sim: true
+total_timesteps: 50_000_000
+max_step: ${.total_timesteps}   # custom_torch alias
+wandb: null
+
+# ---- Env construction (custom_jax: passed to RLFactory.make as **env_params) ----
+env_params: {}                   # see ppo.parallel.yaml for shape
+
+# ---- Eval / render CLI knobs (used by eval.py / render.py; ignored by train.py) ----
+checkpoint: null
+n_episodes: 100
+eval_total_steps: 4000           # per-env step budget for unbiased eval
+render_max_steps: 1000
+
+# ---- TD3 algorithm hyperparameters ----
+horizon_len: 1
+n_steps: ${.horizon_len}
+buffer_size: 5_000_000
+memory_size: ${.buffer_size}
+batch_size: 4096
+nstep: 1
+tau: 0.05
+gamma: 0.99
+warm_up: 32
+learning_starts: ${.warm_up}
+update_times: 8
+gradient_steps: ${.update_times}
+no_tgt_actor: false
+policy_delay: 2
+
+# Action-noise (custom_torch reads explore_noise / policy_noise / noise_clip)
+explore_noise: 0.1
+policy_noise: 0.2
+noise_clip: 0.5
+target_policy_noise: ${.policy_noise}
+target_noise_clip: ${.noise_clip}
+
+# ---- ActorCriticBase shared ----
+learning_rate: 3.0e-4
+actor_lr: ${.learning_rate}
+critic_lr: ${.learning_rate}
+max_grad_norm: 1.0
+obs_norm: false
+handle_timeout: true
+tracker_len: 1000
+reward_scale: 1.0
+
+act_class: TanhMLPPolicy
+cri_class: DoubleQ
+
+# ---- Policy network ----
+policy: MlpPolicy
+policy_kwargs:
+  net_arch: [256, 256]
+
+# ---- Tuning search-space ----
+search_space:
+  learning_rate:  { type: log_uniform, low: 1.0e-5, high: 1.0e-3 }
+  batch_size:     { type: choice, values: [4096, 8192, 16384] }
+  tau:            { type: uniform, low: 0.005, high: 0.1 }
+  gamma:          { type: uniform, low: 0.95, high: 0.999 }
+  policy_delay:   { type: choice, values: [1, 2, 4] }
+  nstep:          { type: choice, values: [1, 3, 5] }
+  update_times:   { type: choice, values: [4, 8, 16] }
+  policy_noise:   { type: uniform, low: 0.1, high: 0.4 }
+  noise_clip:     { type: uniform, low: 0.3, high: 0.7 }

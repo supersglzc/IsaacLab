@@ -1,0 +1,13 @@
+# Plugin-generated training artifacts — large and per-host
+outputs/
+rl_experiments/tunes/
+rl_experiments/sweeps/*/trials/*/agent_*.log
+
+# Bytecode
+**/__pycache__/
+
+# Ad-hoc stdout dumps (the .md run-logs are tracked; the raw .log dumps aren't)
+run-log/*.log
+
+# Local backup artifacts from setup_uv.sh
+setup_uv.sh.*.bak

@@ -1,0 +1,40 @@
+{
+  "sweep_id": "sweep_20260507-130403",
+  "created_at": "2026-05-07T13:04:03.422110Z",
+  "parsed_args": {
+    "task": [
+      "Isaac-Factory-PegInsert-Direct-v0"
+    ],
+    "algorithm": [
+      "ppo"
+    ],
+    "total_timesteps": 10000000,
+    "wandb": "isaac_final"
+  },
+  "mode": "cluster",
+  "smoke": {
+    "ran": false,
+    "reason": "skipped \u2014 cell empirically validated in same session (W&B oyd70wod reached step 1.08M, reward 92.49)"
+  },
+  "trial_configs": [
+    {
+      "algorithm": "ppo",
+      "task": "Isaac-Factory-PegInsert-Direct-v0",
+      "total_timesteps": 10000000,
+      "wandb": "isaac_final"
+    }
+  ],
+  "trials": [
+    {
+      "trial_id": "000_ppo_Isaac-Factory-PegInsert-Direct-v0_827200d1",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "wandb": "isaac_final"
+      },
+      "trial_dir": "nautilus/rl_experiments/sweeps/sweep_20260507-130403/trials/000_ppo_Isaac-Factory-PegInsert-Direct-v0_827200d1"
+    }
+  ],
+  "launch_script": "nautilus/rl_experiments/sweeps/sweep_20260507-130403/launch.sh"
+}

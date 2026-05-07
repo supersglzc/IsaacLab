@@ -1,0 +1,95 @@
+# PPO — GPU-batched defaults (gpu_sim=true).
+#
+# Activated when the benchmark's gpu_sim=true. Same key schema is consumed by
+# all three algorithm sources:
+#   - custom_torch (PQL/DDiffPG-style PyTorch tree)
+#   - custom_jax   (Flax/optax tree; reads the same keys + ignores act_class/cri_class)
+#   - stable_baseline3 (SB3 PPO; reads policy / policy_kwargs / learning_rate / n_steps / ...)
+#
+# >>> FILL IN: maintainer-tuned values for the isaaclab benchmark.
+
+name: ppo
+algo: ppo
+task:
+
+# ---- Sim / device ----
+num_envs: 2048            # matches reference examples/training_examples/jax_rl/conf.yaml
+n_envs: ${.num_envs}      # alias used by SB3 path
+device: cuda
+sim_device: ${.device}
+rl_device: ${.device}
+graphics_device_id: 0
+seed: 42
+gpu_sim: true
+total_timesteps: 100_000_000     # = 10e7, mirrors reference total_timesteps
+max_step: ${.total_timesteps}   # custom_torch alias
+wandb:
+
+# ---- Env construction (custom_jax: passed to RLFactory.make as **env_params) ----
+# Mirror the loco-mujoco reference at examples/training_examples/jax_rl/conf.yaml.
+# Fill in benchmark-specific overrides; defaults below let the env pick its own
+# reward / terminal / goal handlers.
+env_params: {}                   # e.g. {horizon: 1000, reward_type: LocomotionReward, reward_params: {tracking_w_exp_xy: 4.0}}
+
+# ---- Eval / render CLI knobs (used by eval.py / render.py; ignored by train.py) ----
+checkpoint:
+n_episodes: 100                  # eval runs to 100 completions per env; aggregate across envs
+eval_total_steps: 4000           # per-env step budget for eval (ensures we sample steady-state, not first-completion bias)
+render_max_steps: 1000
+
+# ---- PPO hyperparameters (unified key names) ----
+# Defaults aligned with loco-mujoco's reference conf.yaml at
+# examples/training_examples/jax_rl/conf.yaml.
+n_steps: 64               # rollout horizon per iteration (custom_torch reads as horizon_len)
+horizon_len: ${.n_steps}
+batch_size: 8192
+n_epochs: 8
+n_minibatches: 32         # 8x more grad steps per outer iter than the old default of 4
+update_times: ${.n_epochs}
+gamma: 0.99
+gae_lambda: 0.95
+clip_range: 0.2
+clip_range_vf:
+ent_coef: 0.0
+vf_coef: 0.5
+max_grad_norm: 0.5        # reference uses 0.5, was 1.0 here
+learning_rate: 1.0e-4     # reference uses 1e-4, was 3e-4 here
+anneal_lr: false          # reference's _get_optimizer respects this flag (linear decay over num_updates)
+weight_decay: 0.0         # reference passes this to optax.adamw
+
+# ---- Policy network (custom_jax reads hidden_dims + init_log_std + learnable_std) ----
+hidden_dims: [512, 256]   # reference conf.yaml hidden_layers; was [256, 256] here
+activation: tanh
+init_log_std: -0.223      # = log(0.8); reference uses init_std=0.8, our log_std default was 0.0 (=> std=1.0)
+learnable_std: true       # if false, log_std is wrapped in stop_gradient (fixed std)
+
+# ---- ActorCriticBase shared ----
+actor_lr: ${.learning_rate}
+critic_lr: ${.learning_rate}
+obs_norm: true
+value_norm: true
+handle_timeout: true
+tracker_len: 1000
+reward_scale: 1.0
+no_tgt_actor: true
+use_gae: true
+
+act_class: DiagGaussianMLPPolicy
+cri_class: MLPCritic
+
+# ---- Policy network (SB3 path uses these; custom_torch uses act_class/cri_class) ----
+policy: MlpPolicy
+policy_kwargs:
+  net_arch: [256, 256]
+
+# ---- Tuning search-space ----
+search_space:
+  learning_rate: {type: log_uniform, low: 1.0e-5, high: 1.0e-3}
+  n_steps: {type: choice, values: [8, 16, 32, 64]}
+  batch_size: {type: choice, values: [8192, 16384, 32768, 65536]}
+  gamma: {type: uniform, low: 0.95, high: 0.999}
+  gae_lambda: {type: uniform, low: 0.9, high: 0.99}
+  clip_range: {type: choice, values: [0.1, 0.2, 0.3]}
+  ent_coef: {type: log_uniform, low: 1.0e-6, high: 1.0e-2}
+  n_epochs: {type: choice, values: [2, 4, 8]}
+value_clip: true

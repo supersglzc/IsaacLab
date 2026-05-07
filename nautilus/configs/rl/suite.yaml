@@ -1,0 +1,28 @@
+# isaaclab — RL suite top-level config.
+#
+# This file is loaded by nautilus/scripts/rl/train.py via hydra; per-algorithm configs
+# (ppo.yaml / sac.yaml / td3.yaml or their .parallel variants) compose into it
+# under the `algo` key. The values below set RUN-LEVEL defaults; hyperparameters
+# live in the per-algorithm files.
+
+defaults:
+  - algo: ppo            # override on CLI: --config-name=sac
+  - _self_
+
+# ---- Run identity ----
+seed: 42
+algo: ppo
+task: null                # required at CLI: task=<id>
+
+# ---- Logging ----
+log_dir: nautilus/rl_experiments/runs/${algo}-${task}-${now:%Y%m%d_%H%M%S}
+checkpoint_dir: ${log_dir}
+wandb: null               # null = disabled; "<project>" = enabled
+wandb_entity: null
+
+# ---- Training budget ----
+total_timesteps: 100_000  # FILL IN per-task; see nautilus/rl-suite-spec.json training_defaults
+
+# ---- Eval / render defaults ----
+eval_episodes: 10
+render: true

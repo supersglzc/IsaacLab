@@ -1,0 +1,80 @@
+{
+  "primary_install_strategy": "mixed",
+  "system_apt_packages": ["cmake", "build-essential", "libegl1", "libosmesa6", "libgl1", "libglib2.0-0"],
+  "third_party_clones": [],
+  "installation_steps": [
+    {
+      "kind": "apt_install",
+      "pkgs": ["cmake", "build-essential", "libegl1", "libosmesa6", "libgl1", "libglib2.0-0"]
+    },
+    {
+      "kind": "shell",
+      "cmd": "ln -sfn /home/steven/Downloads/isaac-sim-standalone@4.5.0-rc.36+release.19112.f59b3005.gl.linux-x86_64.release /home/steven/code/agentic/IsaacLab/_isaac_sim"
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": ["--upgrade", "pip"]
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": ["setuptools<82.0.0"]
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": [
+        "--index-url", "https://download.pytorch.org/whl/cu128",
+        "torch==2.7.0", "torchvision==0.22.0"
+      ]
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": ["toml"]
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": ["--editable", "/home/steven/code/agentic/IsaacLab/source/isaaclab"]
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": ["--editable", "/home/steven/code/agentic/IsaacLab/source/isaaclab_assets"]
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": ["--editable", "/home/steven/code/agentic/IsaacLab/source/isaaclab_tasks"]
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": ["--editable", "/home/steven/code/agentic/IsaacLab/source/isaaclab_rl[all]"]
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": ["--editable", "/home/steven/code/agentic/IsaacLab/source/isaaclab_mimic[all]"]
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": ["--editable", "/home/steven/code/agentic/IsaacLab/source/isaaclab_contrib"]
+    },
+    {
+      "kind": "uv_pip_install",
+      "args": ["pynvml"]
+    }
+  ],
+  "post_install_hooks": [],
+  "evidence": {
+    "readme_quotes": [
+      "Isaac Lab is a GPU-accelerated, open-source framework designed to unify and simplify robotics research workflows, such as reinforcement learning, imitation learning, and motion planning. Built on NVIDIA Isaac Sim.",
+      "pip_installation.rst: 'pip install -U torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu128' (Linux x86_64)",
+      "src_symlink_isaacsim.rst: 'ln -s ${ISAACSIM_PATH} _isaac_sim' — create symlink to binary install directory",
+      "isaaclab.sh -i block: '${pip_command} setuptools<82.0.0' — prescribed by isaaclab.sh install sequence",
+      "isaaclab.sh -i block: 'find -L source -mindepth 1 -maxdepth 1 -type d -exec install_isaaclab_extension' — installs all source/ extensions editable",
+      "isaaclab.sh -i block: '${pip_command} -e source/isaaclab_rl[all]' and '${pip_command} -e source/isaaclab_mimic[all]' — install RL and mimic frameworks",
+      "pip_python_virtual_env.rst (UV section): 'uv venv --python 3.11 --seed env_isaaclab' (note: we use 3.10 for Isaac Sim 4.5 binary which ships Python 3.10)"
+    ],
+    "ambiguities": [
+      "Docs show two Isaac Sim install paths: (A) pip install isaacsim[all,extscache] from pypi.nvidia.com, (B) binary install + _isaac_sim symlink. User has Isaac Sim 4.5 binary at /home/steven/Downloads/...; this plan uses path B (symlink).",
+      "isaaclab.sh calls ensure_cuda_torch which would install torch==2.7.0+cu128 for x86_64. We replicate this directly as a uv pip install step.",
+      "isaaclab_contrib has no install_requires; installed for completeness since isaaclab.sh -i installs all source/ subdirs.",
+      "Python version: Isaac Sim 4.5 binary ships Python 3.10; venv must be 3.10 (system python3.10 available at /usr/bin/python3.10). Docs confirm: 'For Isaac Sim 4.X, the required Python version is 3.10.'"
+    ]
+  }
+}

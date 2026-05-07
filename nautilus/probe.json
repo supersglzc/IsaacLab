@@ -1,0 +1,32 @@
+{
+  "python_version": "3.10",
+  "quirks": [
+    "needs_setuptools_pin",
+    "needs_render_libs"
+  ],
+  "markdown_files": [
+    "/home/steven/code/agentic/IsaacLab/README.md",
+    "/home/steven/code/agentic/IsaacLab/CONTRIBUTING.md",
+    "/home/steven/code/agentic/IsaacLab/CONTRIBUTORS.md",
+    "/home/steven/code/agentic/IsaacLab/SECURITY.md"
+  ],
+  "readme_path": "/home/steven/code/agentic/IsaacLab/README.md",
+  "classification": "benchmark",
+  "classification_reason": "README states 'Environments: Ready-to-train implementations of more than 30 environments' and the repo contains source/isaaclab_tasks with named task environments and scripts/reinforcement_learning/ — a simulation benchmark framework.",
+  "classification_confidence": "default_no_user_response",
+  "has_uv_lock": false,
+  "has_requirements_txt": false,
+  "has_pyproject_toml": true,
+  "has_setup_py": true,
+  "isaac_sim_install": "binary",
+  "isaac_sim_binary_path": "/home/steven/Downloads/isaac-sim-standalone@4.5.0-rc.36+release.19112.f59b3005.gl.linux-x86_64.release",
+  "isaac_sim_version": "4.5.0",
+  "notes": [
+    "IsaacLab is a simulation framework built on NVIDIA Isaac Sim (not isaacgym). Not subject to the is_isaacgym quirk.",
+    "Isaac Sim 4.5 binary is present at the isaac_sim_binary_path above. Python must be 3.10.",
+    "Install proceeds via: symlink _isaac_sim -> binary dir, then editable install of all source/ packages.",
+    "needs_setuptools_pin fires because rl-games depends on pkg_resources and setuptools<82 is already prescribed by isaaclab.sh itself.",
+    "needs_render_libs fires because simulation environments may need EGL/OSMesa for headless rendering.",
+    "pxr (USD) and isaacsim modules are provided by the binary install via PYTHONPATH (setup_python_env.sh). They are NOT pip packages in the venv and will fail bare import — this is expected behavior."
+  ]
+}

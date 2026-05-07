@@ -1,0 +1,6 @@
+{
+  "algorithm": "ppo",
+  "task": "Isaac-Factory-PegInsert-Direct-v0",
+  "total_timesteps": 10000000,
+  "wandb": "isaac_final"
+}

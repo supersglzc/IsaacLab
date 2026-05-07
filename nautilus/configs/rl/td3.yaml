@@ -1,0 +1,62 @@
+# TD3 — CPU vec-env defaults (stable-baselines3 path).
+#
+# Parameter names mirror stable_baselines3.TD3.__init__ — see
+# https://stable-baselines3.readthedocs.io/en/master/modules/td3.html
+#
+# >>> FILL IN: maintainer-tuned values for the isaaclab benchmark.
+
+name: td3
+algo: td3
+task: null            # override at CLI: task=<id>
+n_envs: 1
+total_timesteps: 1_000_000
+max_step: ${.total_timesteps}   # custom_torch alias — allows plain `max_step=N` Hydra override
+wandb: null                # null = disabled; CLI: wandb=<project_name>
+
+# ---- Eval / render extras (consumed by eval.py / render.py; ignored by train) ----
+checkpoint: null           # eval/render: required, set via CLI (checkpoint=<path>)
+n_episodes: 10             # eval: how many full episodes to evaluate
+render_max_steps: 1000     # render: cap on rollout length
+
+# ---- Algorithm hyperparameters ----
+learning_rate: 1.0e-3
+buffer_size: 1_000_000
+batch_size: 100
+tau: 0.005
+gamma: 0.99
+policy_delay: 2
+target_policy_noise: 0.2   # SB3 name (custom_torch reads as policy_noise)
+policy_noise: 0.2          # custom_torch alias
+target_noise_clip: 0.5
+noise_clip: 0.5
+explore_noise: 0.1         # custom_torch: action-time exploration std
+learning_starts: 100
+update_times: 1
+warm_up: 1000
+nstep: 1
+
+# ---- Policy network ----
+policy: MlpPolicy
+policy_kwargs:
+  net_arch: [256, 256]
+
+# ---- W&B logging metrics ----
+metrics:
+  - rollout/ep_rew_mean
+  - rollout/ep_len_mean
+  - train/actor_loss
+  - train/critic_loss
+  - train/q_value
+  - time/fps
+
+# ---- Tuning search-space ----
+search_space:
+  learning_rate:        { type: log_uniform, low: 1.0e-5, high: 1.0e-3 }
+  buffer_size:          { type: choice, values: [100_000, 500_000, 1_000_000] }
+  batch_size:           { type: choice, values: [64, 100, 256, 512] }
+  tau:                  { type: uniform, low: 0.001, high: 0.05 }
+  gamma:                { type: uniform, low: 0.95, high: 0.999 }
+  policy_delay:         { type: choice, values: [1, 2, 4] }
+  target_policy_noise:  { type: uniform, low: 0.1, high: 0.4 }
+  target_noise_clip:    { type: uniform, low: 0.3, high: 0.7 }
+  learning_starts:      { type: choice, values: [100, 1_000, 10_000] }
