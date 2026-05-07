@@ -43,7 +43,7 @@ render_max_steps: 1000
 n_steps: 64               # rollout horizon per iteration (custom_torch reads as horizon_len)
 horizon_len: ${.n_steps}
 batch_size: 8192
-n_epochs: 8
+n_epochs: 16
 n_minibatches: 32         # 8x more grad steps per outer iter than the old default of 4
 update_times: ${.n_epochs}
 gamma: 0.99
