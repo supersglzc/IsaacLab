@@ -1,0 +1,8 @@
+{
+  "algorithm": "ppo",
+  "task": "Isaac-Franka-Cabinet-Direct-v0",
+  "total_timesteps": 100000000,
+  "seed": 2,
+  "wandb": "isaac_final",
+  "config_variant": "default"
+}

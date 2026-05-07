@@ -1,0 +1,333 @@
+{
+  "sweep_id": "sweep_20260507-145554",
+  "created_at": "2026-05-07T14:55:54.797228+00:00",
+  "mode": "cluster",
+  "matrix_summary": {
+    "tasks_10M": [
+      "Isaac-Factory-PegInsert-Direct-v0",
+      "Isaac-Factory-GearMesh-Direct-v0"
+    ],
+    "tasks_100M": [
+      "Isaac-Franka-Cabinet-Direct-v0",
+      "Isaac-Lift-Cube-Franka-v0"
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "config_variants": [
+      "default",
+      "no_norm"
+    ],
+    "algorithm": "ppo",
+    "wandb_project": "isaac_final"
+  },
+  "smoke": {
+    "ran": false,
+    "reason": "skipped \u2014 cell empirically validated earlier today (W&B oyd70wod, ovm1hbd8)"
+  },
+  "trials": [
+    {
+      "trial_id": "000_ppo_Factory-PegInsert_default_seed0_93615ad1",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "001_ppo_Factory-PegInsert_default_seed1_29152515",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "002_ppo_Factory-PegInsert_default_seed2_a119505a",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "003_ppo_Factory-PegInsert_no_norm_seed0_cdd0590f",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "004_ppo_Factory-PegInsert_no_norm_seed1_54a52af7",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "005_ppo_Factory-PegInsert_no_norm_seed2_49edab75",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "006_ppo_Factory-GearMesh_default_seed0_f13730c7",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "007_ppo_Factory-GearMesh_default_seed1_acc2848b",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "008_ppo_Factory-GearMesh_default_seed2_ae3d85d9",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "009_ppo_Factory-GearMesh_no_norm_seed0_c363aa06",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "010_ppo_Factory-GearMesh_no_norm_seed1_84a1c816",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "011_ppo_Factory-GearMesh_no_norm_seed2_77a0072c",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "012_ppo_Franka-Cabinet_default_seed0_d59943e7",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 100000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "013_ppo_Franka-Cabinet_default_seed1_ee46f019",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 100000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "014_ppo_Franka-Cabinet_default_seed2_8e81d55c",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 100000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "015_ppo_Franka-Cabinet_no_norm_seed0_84ff9f90",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 100000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "016_ppo_Franka-Cabinet_no_norm_seed1_4c17b360",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 100000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "017_ppo_Franka-Cabinet_no_norm_seed2_00ed4bac",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 100000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "018_ppo_Lift-Cube-Franka_default_seed0_a1dc5adb",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 100000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "019_ppo_Lift-Cube-Franka_default_seed1_40f3f00d",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 100000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "020_ppo_Lift-Cube-Franka_default_seed2_2910ffc3",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 100000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "021_ppo_Lift-Cube-Franka_no_norm_seed0_f8285273",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 100000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "022_ppo_Lift-Cube-Franka_no_norm_seed1_7632dba0",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 100000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    },
+    {
+      "trial_id": "023_ppo_Lift-Cube-Franka_no_norm_seed2_2bef27dd",
+      "trial_config": {
+        "algorithm": "ppo",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 100000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "no_norm",
+        "obs_norm": "False",
+        "value_norm": "False",
+        "n_epochs": 8
+      }
+    }
+  ],
+  "launch_script": "nautilus/rl_experiments/sweeps/sweep_20260507-145554/launch.sh"
+}
