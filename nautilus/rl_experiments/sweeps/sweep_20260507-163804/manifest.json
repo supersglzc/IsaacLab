@@ -1,0 +1,660 @@
+{
+  "sweep_id": "sweep_20260507-163804",
+  "created_at": "2026-05-07T16:38:04.649119+00:00",
+  "mode": "cluster",
+  "matrix_summary": {
+    "tasks_10M": [
+      "Isaac-Factory-PegInsert-Direct-v0",
+      "Isaac-Factory-GearMesh-Direct-v0"
+    ],
+    "tasks_50M": [
+      "Isaac-Franka-Cabinet-Direct-v0",
+      "Isaac-Lift-Cube-Franka-v0"
+    ],
+    "algorithms": [
+      "sac",
+      "td3"
+    ],
+    "config_variants": [
+      "default",
+      "tuned"
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "wandb_project": "isaac_final"
+  },
+  "smoke": {
+    "ran": false,
+    "reason": "skipped \u2014 same image/proxy already validated by sweep_20260507-145554"
+  },
+  "trials": [
+    {
+      "trial_id": "000_sac_Factory-PegInsert_default_seed0_4cf6ef65",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "001_sac_Factory-PegInsert_default_seed1_fccf63f0",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "002_sac_Factory-PegInsert_default_seed2_936167f6",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "003_sac_Factory-PegInsert_tuned_seed0_4bb57122",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "004_sac_Factory-PegInsert_tuned_seed1_0d425609",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "005_sac_Factory-PegInsert_tuned_seed2_21f40a38",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "006_td3_Factory-PegInsert_default_seed0_198b392f",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "007_td3_Factory-PegInsert_default_seed1_a36db250",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "008_td3_Factory-PegInsert_default_seed2_ec6726b2",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "009_td3_Factory-PegInsert_tuned_seed0_0a88e485",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "010_td3_Factory-PegInsert_tuned_seed1_34707dba",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "011_td3_Factory-PegInsert_tuned_seed2_b414b890",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-PegInsert-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "012_sac_Factory-GearMesh_default_seed0_3734c4c6",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "013_sac_Factory-GearMesh_default_seed1_2b895068",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "014_sac_Factory-GearMesh_default_seed2_d8844896",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "015_sac_Factory-GearMesh_tuned_seed0_3562f661",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "016_sac_Factory-GearMesh_tuned_seed1_3b1c36ef",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "017_sac_Factory-GearMesh_tuned_seed2_490ab1a3",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "018_td3_Factory-GearMesh_default_seed0_c1bd896d",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "019_td3_Factory-GearMesh_default_seed1_58f78315",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "020_td3_Factory-GearMesh_default_seed2_83e410e7",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "021_td3_Factory-GearMesh_tuned_seed0_a75cf811",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "022_td3_Factory-GearMesh_tuned_seed1_272c2b3b",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "023_td3_Factory-GearMesh_tuned_seed2_d1e09144",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Factory-GearMesh-Direct-v0",
+        "total_timesteps": 10000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "024_sac_Franka-Cabinet_default_seed0_b30689aa",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "025_sac_Franka-Cabinet_default_seed1_b74988fb",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "026_sac_Franka-Cabinet_default_seed2_b335546d",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "027_sac_Franka-Cabinet_tuned_seed0_eb491d77",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "028_sac_Franka-Cabinet_tuned_seed1_a9e655ac",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "029_sac_Franka-Cabinet_tuned_seed2_fe77d19e",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "030_td3_Franka-Cabinet_default_seed0_d18a11b3",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "031_td3_Franka-Cabinet_default_seed1_8f582cf7",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "032_td3_Franka-Cabinet_default_seed2_4d4a6635",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "033_td3_Franka-Cabinet_tuned_seed0_73fc0110",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "034_td3_Franka-Cabinet_tuned_seed1_c8ca4db1",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "035_td3_Franka-Cabinet_tuned_seed2_786cbee9",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Franka-Cabinet-Direct-v0",
+        "total_timesteps": 50000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "036_sac_Lift-Cube-Franka_default_seed0_ec6d866f",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "037_sac_Lift-Cube-Franka_default_seed1_c2803a4c",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "038_sac_Lift-Cube-Franka_default_seed2_a32d14b1",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "039_sac_Lift-Cube-Franka_tuned_seed0_65472614",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "040_sac_Lift-Cube-Franka_tuned_seed1_1d56cb39",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "041_sac_Lift-Cube-Franka_tuned_seed2_c0572665",
+      "trial_config": {
+        "algorithm": "sac",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "042_td3_Lift-Cube-Franka_default_seed0_dcb9898d",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "043_td3_Lift-Cube-Franka_default_seed1_4a78e3f2",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "044_td3_Lift-Cube-Franka_default_seed2_74aea87a",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "default"
+      }
+    },
+    {
+      "trial_id": "045_td3_Lift-Cube-Franka_tuned_seed0_3284d4a0",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 0,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "046_td3_Lift-Cube-Franka_tuned_seed1_08b7680e",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 1,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    },
+    {
+      "trial_id": "047_td3_Lift-Cube-Franka_tuned_seed2_cb183a59",
+      "trial_config": {
+        "algorithm": "td3",
+        "task": "Isaac-Lift-Cube-Franka-v0",
+        "total_timesteps": 50000000,
+        "seed": 2,
+        "wandb": "isaac_final",
+        "config_variant": "tuned",
+        "obs_norm": "True",
+        "update_times": 32,
+        "batch_size": 8192,
+        "nstep": 3
+      }
+    }
+  ],
+  "launch_script": "nautilus/rl_experiments/sweeps/sweep_20260507-163804/launch.sh"
+}

@@ -1,0 +1,8 @@
+{
+  "algorithm": "td3",
+  "task": "Isaac-Franka-Cabinet-Direct-v0",
+  "total_timesteps": 50000000,
+  "seed": 0,
+  "wandb": "isaac_final",
+  "config_variant": "default"
+}

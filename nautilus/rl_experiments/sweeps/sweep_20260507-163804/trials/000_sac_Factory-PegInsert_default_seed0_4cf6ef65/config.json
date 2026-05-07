@@ -1,0 +1,8 @@
+{
+  "algorithm": "sac",
+  "task": "Isaac-Factory-PegInsert-Direct-v0",
+  "total_timesteps": 10000000,
+  "seed": 0,
+  "wandb": "isaac_final",
+  "config_variant": "default"
+}

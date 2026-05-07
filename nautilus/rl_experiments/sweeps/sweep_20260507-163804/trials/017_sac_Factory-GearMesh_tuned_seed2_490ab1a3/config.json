@@ -1,0 +1,12 @@
+{
+  "algorithm": "sac",
+  "task": "Isaac-Factory-GearMesh-Direct-v0",
+  "total_timesteps": 10000000,
+  "seed": 2,
+  "wandb": "isaac_final",
+  "config_variant": "tuned",
+  "obs_norm": "True",
+  "update_times": 32,
+  "batch_size": 8192,
+  "nstep": 3
+}
