@@ -146,8 +146,11 @@ class RewardManager(ManagerBase):
             if term_cfg.weight == 0.0:
                 self._step_reward[:, term_idx] = 0.0
                 continue
-            # compute term's value
-            value = term_cfg.func(self._env, **term_cfg.params) * term_cfg.weight * dt
+            # compute term's value — dt multiplier removed per user direction
+            # (was: ... * term_cfg.weight * dt). Weights are now interpreted
+            # directly as per-step reward magnitudes; existing per-task weights
+            # must be rescaled by dt to preserve their previous effective values.
+            value = term_cfg.func(self._env, **term_cfg.params) * term_cfg.weight
             # update total reward
             self._reward_buf += value
             # update episodic sum
