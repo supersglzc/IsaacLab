@@ -5,12 +5,20 @@
 
 """Termination helpers for the stack_cube task.
 
-Success: `cube_0_stacked_on_cube_1` — cube_0 is on top of cube_1.
-    |cube_0.xy - cube_1.xy| < xy_threshold
-    |cube_0.z  - cube_1.z - CUBE_SIZE| < z_threshold
+Edit_mode_012 (3-tier tower):
 
-Failure: `cube_0_dropping` — cube_0 falls off the table (z below table_height
-by more than `drop_margin` metres).
+  Success: `three_tier_tower_stacked` — cube_0 is on cube_1 AND cube_1 is on cube_2.
+    AND of two per-pair stacking checks:
+      |Δxy| < xy_threshold AND |Δz - CUBE_SIZE| < z_threshold
+
+  Failure: `any_cube_dropping` — ANY of cube_0/cube_1/cube_2 falls below
+    `table_height - drop_margin` metres.
+
+Legacy 2-cube helpers `cube_0_stacked_on_cube_1` and `cube_0_dropping` are
+PRESERVED — the §6 reward (`mdp.cube_0_stacked_bonus`) imports the same-named
+function indirectly via `from .rewards import *`, but reward-generator will
+rewire that in the very next phase. Keeping them removes the cross-section
+coupling for this edit pass.
 """
 from __future__ import annotations
 
@@ -25,8 +33,25 @@ if TYPE_CHECKING:
 
 
 # Module-level constant: cube edge length used to compute the expected
-# stacked z-gap between cube_0 (top) and cube_1 (bottom).
+# stacked z-gap between consecutive layers.
 CUBE_SIZE = 0.043
+
+
+def _pair_stacked(
+    top_pos: torch.Tensor,
+    bottom_pos: torch.Tensor,
+    xy_threshold: float,
+    z_threshold: float,
+) -> torch.Tensor:
+    """Shared helper: True per env when `top` cube is stacked on `bottom` cube.
+
+    `|top.xy - bottom.xy| < xy_threshold` AND `|Δz - CUBE_SIZE| < z_threshold`.
+    """
+    xy_distance = torch.norm(top_pos[:, :2] - bottom_pos[:, :2], dim=-1)
+    z_gap = top_pos[:, 2] - bottom_pos[:, 2]
+    aligned_xy = xy_distance < xy_threshold
+    on_top_z = torch.abs(z_gap - CUBE_SIZE) < z_threshold
+    return aligned_xy & on_top_z
 
 
 def cube_0_stacked_on_cube_1(
@@ -34,24 +59,79 @@ def cube_0_stacked_on_cube_1(
     xy_threshold: float = 0.02,
     z_threshold: float = 0.01,
 ) -> torch.Tensor:
-    """True when cube_0 is stacked on top of cube_1.
+    """True when cube_0 is stacked on top of cube_1 (2-cube legacy helper).
 
-    Conditions (both must hold per env):
-        |cube_0.xy - cube_1.xy| < xy_threshold
-        |cube_0.z  - cube_1.z - CUBE_SIZE| < z_threshold
+    Kept after edit_mode_012 so the §6 reward `mdp.cube_0_stacked_bonus`
+    import stays valid; the actual TerminationsCfg.success is now
+    `three_tier_tower_stacked`.
     """
     cube_0: RigidObject = env.scene["cube_0"]
     cube_1: RigidObject = env.scene["cube_1"]
+    return _pair_stacked(
+        cube_0.data.root_pos_w[:, :3],
+        cube_1.data.root_pos_w[:, :3],
+        xy_threshold,
+        z_threshold,
+    )
 
+
+def _gripper_far_from_cube_0(
+    env: "ManagerBasedRLEnv",
+    min_distance: float = 0.04,
+) -> torch.Tensor:
+    """True per env if EE (ee_frame target 0) is at least `min_distance` away from cube_0."""
+    cube_0 = env.scene["cube_0"]
+    ee_frame = env.scene["ee_frame"]
+    ee_pos = ee_frame.data.target_pos_w[..., 0, :]
+    cube_pos = cube_0.data.root_pos_w[:, :3]
+    distance = torch.norm(ee_pos - cube_pos, dim=-1)
+    return distance > min_distance
+
+
+def _no_contact_between_cube_0_and_gripper_or_ee(
+    env: "ManagerBasedRLEnv",
+    eps: float = 1e-3,
+) -> torch.Tensor:
+    """True per env if neither fingertip NOR the panda_hand body has contact force vs cube_0."""
+    left = env.scene["finger_left_contact"]
+    right = env.scene["finger_right_contact"]
+    hand = env.scene["hand_contact"]
+    left_f0 = torch.norm(left.data.force_matrix_w[:, 0, 0, :], dim=-1)
+    right_f0 = torch.norm(right.data.force_matrix_w[:, 0, 0, :], dim=-1)
+    hand_f0 = torch.norm(hand.data.force_matrix_w[:, 0, 0, :], dim=-1)
+    in_contact = (left_f0 > eps) | (right_f0 > eps) | (hand_f0 > eps)
+    return ~in_contact
+
+
+def three_tier_tower_stacked(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+    gripper_away_min_distance: float = 0.04,
+) -> torch.Tensor:
+    """True when 3-tier tower is assembled: cube_0 on cube_1 (released + no contact) AND cube_2 on cube_0.
+
+    Tower order (bottom-up):  cube_1 (base on table) → cube_0 → cube_2 (top).
+
+    cube_0-on-cube_1 leg requires ALL THREE:
+      - geometric pair stack (|Δxy| < xy_threshold AND |Δz - CUBE_SIZE| < z_threshold)
+      - EE at least `gripper_away_min_distance` (default 4 cm) away from cube_0
+      - no contact force between cube_0 and either fingertip OR the panda_hand body
+    cube_2-on-cube_0 leg is geometric only.
+    """
+    cube_0: RigidObject = env.scene["cube_0"]
+    cube_1: RigidObject = env.scene["cube_1"]
+    cube_2: RigidObject = env.scene["cube_2"]
     pos_0 = cube_0.data.root_pos_w[:, :3]
     pos_1 = cube_1.data.root_pos_w[:, :3]
-
-    xy_distance = torch.norm(pos_0[:, :2] - pos_1[:, :2], dim=-1)
-    z_gap = pos_0[:, 2] - pos_1[:, 2]
-
-    aligned_xy = xy_distance < xy_threshold
-    on_top_z = torch.abs(z_gap - CUBE_SIZE) < z_threshold
-    return aligned_xy & on_top_z
+    pos_2 = cube_2.data.root_pos_w[:, :3]
+    cube_0_on_cube_1 = (
+        _pair_stacked(pos_0, pos_1, xy_threshold, z_threshold)
+        & _gripper_far_from_cube_0(env, min_distance=gripper_away_min_distance)
+        & _no_contact_between_cube_0_and_gripper_or_ee(env)
+    )
+    cube_2_on_cube_0 = _pair_stacked(pos_2, pos_0, xy_threshold, z_threshold)
+    return cube_0_on_cube_1 & cube_2_on_cube_0
 
 
 def cube_0_dropping(
@@ -62,7 +142,25 @@ def cube_0_dropping(
     """True when cube_0 falls more than `drop_margin` metres below `table_height`.
 
     Mirror of LiftCube's `object_dropping` term, specialized to cube_0.
+    Preserved alongside `any_cube_dropping` for backwards compatibility.
     """
     cube_0: RigidObject = env.scene["cube_0"]
     z_floor = table_height - drop_margin
     return cube_0.data.root_pos_w[:, 2] < z_floor
+
+
+def any_cube_dropping(
+    env: "ManagerBasedRLEnv",
+    drop_margin: float = 0.05,
+    table_height: float = 0.0,
+) -> torch.Tensor:
+    """True when ANY of cube_0/cube_1/cube_2 falls below `table_height - drop_margin`."""
+    z_floor = table_height - drop_margin
+    cube_0: RigidObject = env.scene["cube_0"]
+    cube_1: RigidObject = env.scene["cube_1"]
+    cube_2: RigidObject = env.scene["cube_2"]
+    return (
+        (cube_0.data.root_pos_w[:, 2] < z_floor)
+        | (cube_1.data.root_pos_w[:, 2] < z_floor)
+        | (cube_2.data.root_pos_w[:, 2] < z_floor)
+    )

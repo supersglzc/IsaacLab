@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "task_id": "Isaac-Push-Block-Franka-v0",
+  "slug": "isaac-push-block-franka-v0",
+  "description": "Franka pushes a small block from table center to a target marker. Success at <5cm; horizon 200.",
+  "assets": [],
+  "dry_run": false,
+  "created_at": "2026-05-09T00:00:00Z",
+  "phases": {
+    "task_generator": {
+      "status": "pass",
+      "smoke": {
+        "S1": "pass",
+        "S2": "pass",
+        "S3": "pass",
+        "S4": "pass",
+        "S5": "pass"
+      },
+      "iterations_per_section": {
+        "S1": 1,
+        "S2": 1,
+        "S3": 1,
+        "S4": 1,
+        "S5": 1
+      },
+      "finished_at": "2026-05-09T19:55:00Z"
+    },
+    "reward_generator": {
+      "status": "pass",
+      "smoke": {"S6": "pass"},
+      "iterations": 1,
+      "composer": "sum",
+      "per_term_logging": "yes",
+      "finished_at": "2026-05-09T20:01:30Z"
+    },
+    "dr_generator":     {"status": "pending", "smoke": {}}
+  }
+}

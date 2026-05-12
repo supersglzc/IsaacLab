@@ -3,23 +3,42 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Reward functions for the stack_cube task — LiftCube recipe retargeted.
+"""Reward functions for the stack_cube task — 3-tier tower extension (iter 23).
 
-Five named stages + two regularizers (regularizers come from the shared
-`isaaclab.envs.mdp` namespace, not defined here):
+Two parallel LiftCube-style stages (cube_1 → cube_2 first, then cube_0 → cube_1)
+plus a sparse full-tower bonus that aligns with the success termination:
 
-    s1  reaching_object       — 1 - tanh(||ee_w - cube_0||/std)  (LiftCube mirror)
-    s2  lifting_object        — 1.0 if cube_0.z_w > minimal_height else 0.0
-    s3  goal_tracking_coarse  — (cube_0 lifted) * (1 - tanh(d/std)), std=0.3
-    s4  goal_tracking_fine    — (cube_0 lifted) * (1 - tanh(d/std)), std=0.05
-    s5  success_bonus         — 1.0 when (xy<thresh AND |Δz - CUBE_SIZE|<thresh)
+  Lower pair (stage 1, must complete first):
+    cube_1_ee_distance              — 1 - tanh(||ee_w - cube_1||/std)
+    cube_1_is_lifted                — 1.0 if cube_1.z_w > minimal_height else 0.0
+    cube_1_goal_distance            — lifted_1 * (1 - tanh(d_1_to_top_of_2 / std))
+    cube_1_stacked_on_cube_2_bonus  — sparse stage-1 indicator
 
-Goal pose: `cube_1.pos_w + [0, 0, CUBE_SIZE]`. No command_manager dependency;
-the target is read directly from the cube_1 scene entity.
+  Upper pair (stage 2, gated on lower pair being stacked):
+    cube_0_ee_distance              — 1 - tanh(||ee_w - cube_0||/std)   (always on)
+    cube_0_is_lifted                — 1.0 if cube_0.z_w > minimal_height else 0.0
+    cube_0_goal_distance_staged     — (lifted_0 AND cube_1-on-cube_2) *
+                                       (1 - tanh(d_0_to_top_of_1 / std))
+    cube_0_stacked_bonus            — sparse stage-2 indicator
+
+  Full tower (alignment with success termination):
+    three_tier_tower_bonus          — 1.0 iff BOTH pairs stacked simultaneously
+
+Plus two regularizers from the shared `isaaclab.envs.mdp` namespace
+(`action_rate_l2`, `joint_vel_l2`).
+
+Goals are implicit: `cube_1`'s goal = `cube_2.pos_w + [0, 0, CUBE_SIZE]`,
+`cube_0`'s goal = `cube_1.pos_w + [0, 0, CUBE_SIZE]` (dynamic — updates as
+cube_1 settles into its stacked pose).
 
 EE pose is read from the FrameTransformer scene entity `ee_frame` (LiftCube
 convention). The Franka per-robot cfg installs this sensor pointing at
 `panda_hand` with an offset of [0, 0, 0.1034] (fingertip).
+
+The legacy 2-cube helpers (`cube_0_ee_distance`, `cube_0_is_lifted`,
+`cube_0_goal_distance`, `cube_0_stacked_bonus`) are PRESERVED — the new
+RewardsCfg reuses them directly for the upper pair; only the goal-tracking
+term is replaced by the staged variant so it gates on lower-pair stacking.
 """
 from __future__ import annotations
 
@@ -38,6 +57,28 @@ if TYPE_CHECKING:
 # Cube edge length — the expected z-gap between cube_0 (top) and cube_1 (bottom)
 # when stacked. Mirrors the constant in `mdp/terminations.py`.
 CUBE_SIZE = 0.043
+
+
+# iter 33 — module-level per-env latch buffers (keyed by id(env), key_str).
+# Used by `cube_1_was_stacked_latched_indicator` to gate cube_0 shaping on
+# 'cube_1 has been stacked on cube_2 AT LEAST ONCE in this episode'. Once the
+# latch is set it stays True for the rest of the episode (giving the policy
+# ~150-200 frames of cube_0 shaping signal per stage-1-success episode vs the
+# ~21 frames of the strict instantaneous gate). The latch resets on episode
+# reset via the episode_length_buf <= 1 check. Single train-job safety:
+# /reward-tune runs one train at a time; reassigns happen each call.
+_LATCH_BUFFERS: dict[tuple, torch.Tensor] = {}
+
+
+def _get_latch_buffer(env, key: str) -> torch.Tensor:
+    """Get or lazily-create a per-env boolean latch tensor of shape (num_envs,).
+
+    Stored on the module-level `_LATCH_BUFFERS` dict keyed by `(id(env), key)`.
+    """
+    full_key = (id(env), key)
+    if full_key not in _LATCH_BUFFERS:
+        _LATCH_BUFFERS[full_key] = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    return _LATCH_BUFFERS[full_key]
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +171,572 @@ def cube_0_stacked_bonus(
     aligned_xy = xy_dist < xy_threshold
     on_top_z = torch.abs(z_gap - CUBE_SIZE) < z_threshold
     return (aligned_xy & on_top_z).float()
+
+
+def _gripper_far_from_cube_0(
+    env: "ManagerBasedRLEnv",
+    min_distance: float = 0.04,
+) -> torch.Tensor:
+    """True per env if EE (ee_frame target 0) is at least `min_distance` away from cube_0.
+
+    Uses ee_frame's `target_pos_w` (panda_hand + [0,0,0.1034] offset) and
+    cube_0 root pos, L2 distance in world frame. 4 cm default ≈ one cube edge.
+    """
+    cube_0 = env.scene["cube_0"]
+    ee_frame = env.scene["ee_frame"]
+    ee_pos = ee_frame.data.target_pos_w[..., 0, :]
+    cube_pos = cube_0.data.root_pos_w[:, :3]
+    distance = torch.norm(ee_pos - cube_pos, dim=-1)
+    return distance > min_distance
+
+
+def _no_contact_between_cube_0_and_gripper_or_ee(
+    env: "ManagerBasedRLEnv",
+    eps: float = 1e-3,
+) -> torch.Tensor:
+    """True per env if cube_0 has NO contact force vs either fingertip OR the hand body.
+
+    Reads `force_matrix_w[:, 0, 0, :]` (filter index 0 = Cube_0) on
+    finger_left_contact, finger_right_contact, and hand_contact sensors. All
+    three must have force magnitude ≤ eps for this to return True.
+    """
+    left = env.scene["finger_left_contact"]
+    right = env.scene["finger_right_contact"]
+    hand = env.scene["hand_contact"]
+    left_f0 = torch.norm(left.data.force_matrix_w[:, 0, 0, :], dim=-1)
+    right_f0 = torch.norm(right.data.force_matrix_w[:, 0, 0, :], dim=-1)
+    hand_f0 = torch.norm(hand.data.force_matrix_w[:, 0, 0, :], dim=-1)
+    in_contact = (left_f0 > eps) | (right_f0 > eps) | (hand_f0 > eps)
+    return ~in_contact
+
+
+def cube_0_stacked_bonus_once_per_episode(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+    gripper_away_min_distance: float = 0.04,
+    cube_0_cfg: SceneEntityCfg = SceneEntityCfg("cube_0"),
+    cube_1_cfg: SceneEntityCfg = SceneEntityCfg("cube_1"),
+) -> torch.Tensor:
+    """+1.0 the FIRST step cube_0 stacked on cube_1 + EE moved away ≥ 4 cm + no contact, else 0.0.
+
+    Success criteria (ALL THREE must hold):
+      - geometric: |cube_0.xy − cube_1.xy| < xy_threshold AND |Δz − CUBE_SIZE| < z_threshold
+      - distance: ||EE_pos − cube_0_pos|| ≥ gripper_away_min_distance (default 4 cm)
+      - no contact: neither fingertip nor the panda_hand body has any contact force on cube_0
+
+    Per-env latch reset when `env.episode_length_buf <= 1` and set the first
+    time the combined criteria hold. Once latched the bonus stops firing —
+    encourages the policy to MOVE ON to stacking cube_2 on cube_0.
+    """
+    latch = _get_latch_buffer(env, "cube_0_stacked_once")
+    just_reset = env.episode_length_buf <= 1
+    latch = torch.where(just_reset, torch.zeros_like(latch), latch)
+
+    cube_0: RigidObject = env.scene[cube_0_cfg.name]
+    cube_1: RigidObject = env.scene[cube_1_cfg.name]
+    pos_0 = cube_0.data.root_pos_w[:, :3]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    xy_dist = torch.norm(pos_0[:, :2] - pos_1[:, :2], dim=-1)
+    z_gap = pos_0[:, 2] - pos_1[:, 2]
+    geometric = (xy_dist < xy_threshold) & (torch.abs(z_gap - CUBE_SIZE) < z_threshold)
+    far_enough = _gripper_far_from_cube_0(env, min_distance=gripper_away_min_distance)
+    no_contact = _no_contact_between_cube_0_and_gripper_or_ee(env)
+    now_stacked = geometric & far_enough & no_contact
+
+    fire = now_stacked & (~latch)
+    latch = latch | now_stacked
+    _LATCH_BUFFERS[(id(env), "cube_0_stacked_once")] = latch
+    return fire.float()
+
+
+def cube_0_stack_broken_penalty_once_per_episode(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+    cube_0_cfg: SceneEntityCfg = SceneEntityCfg("cube_0"),
+    cube_1_cfg: SceneEntityCfg = SceneEntityCfg("cube_1"),
+) -> torch.Tensor:
+    """+1.0 ONCE per episode when cube_0 had been successfully stacked (success_bonus
+    latch is set) AND the stack has subsequently broken (cube_0 no longer
+    geometrically on cube_1). Otherwise 0.0.
+
+    Intended to be weighted negatively in RewardsCfg (e.g. weight=-100) — the
+    policy is penalized once when it disturbs a previously successful stack.
+
+    Uses two latches:
+      - `cube_0_stacked_once` (read-only here, written by `cube_0_stacked_bonus_once_per_episode`):
+        records "this episode had a successful cube_0 stack at some point".
+      - `stack_broke_penalty_fired` (managed here): records "this episode
+        already paid the broken-stack penalty", preventing repeated firing.
+
+    Declaration order in `RewardsCfg` matters — place this AFTER `success_bonus`
+    so the `cube_0_stacked_once` latch reads the fresh value.
+    """
+    stacked_once = _get_latch_buffer(env, "cube_0_stacked_once")
+
+    penalty_fired = _get_latch_buffer(env, "stack_broke_penalty_fired")
+    just_reset = env.episode_length_buf <= 1
+    penalty_fired = torch.where(just_reset, torch.zeros_like(penalty_fired), penalty_fired)
+
+    cube_0: RigidObject = env.scene[cube_0_cfg.name]
+    cube_1: RigidObject = env.scene[cube_1_cfg.name]
+    pos_0 = cube_0.data.root_pos_w[:, :3]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    xy_dist = torch.norm(pos_0[:, :2] - pos_1[:, :2], dim=-1)
+    z_gap = pos_0[:, 2] - pos_1[:, 2]
+    currently_stacked = (xy_dist < xy_threshold) & (torch.abs(z_gap - CUBE_SIZE) < z_threshold)
+
+    fire = stacked_once & (~currently_stacked) & (~penalty_fired)
+
+    penalty_fired = penalty_fired | fire
+    _LATCH_BUFFERS[(id(env), "stack_broke_penalty_fired")] = penalty_fired
+    return fire.float()
+
+
+def cube_0_currently_stacked_on_cube_1_indicator(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+    cube_0_cfg: SceneEntityCfg = SceneEntityCfg("cube_0"),
+    cube_1_cfg: SceneEntityCfg = SceneEntityCfg("cube_1"),
+) -> torch.Tensor:
+    """Float (num_envs,): 1.0 iff cube_0 is geometrically stacked on cube_1 right now.
+
+    Same geometric condition as the success termination's cube_0-on-cube_1 leg
+    (xy < xy_threshold AND |Δz - CUBE_SIZE| < z_threshold) but evaluated each
+    frame. Used to gate cube_2 shaping — the cube_2 reward only fires while
+    cube_0 IS currently on cube_1 (not "has been at any point earlier").
+    Forces the policy to MAINTAIN cube_0's stack while engaging cube_2.
+
+    No release check here — the policy may be holding cube_0 against cube_1.
+    The success termination still requires release.
+    """
+    cube_0: RigidObject = env.scene[cube_0_cfg.name]
+    cube_1: RigidObject = env.scene[cube_1_cfg.name]
+    pos_0 = cube_0.data.root_pos_w[:, :3]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    xy_dist = torch.norm(pos_0[:, :2] - pos_1[:, :2], dim=-1)
+    z_gap = pos_0[:, 2] - pos_1[:, 2]
+    stacked = (xy_dist < xy_threshold) & (torch.abs(z_gap - CUBE_SIZE) < z_threshold)
+    return stacked.float()
+
+
+def cube_2_ee_distance(
+    env: "ManagerBasedRLEnv",
+    std: float = 0.1,
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube_2"),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+    """`1 - tanh(||cube_2 - ee_w|| / std)` — mirror of `cube_0_ee_distance` retargeted to cube_2."""
+    cube: RigidObject = env.scene[cube_cfg.name]
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    cube_pos_w = cube.data.root_pos_w[:, :3]
+    ee_w = ee_frame.data.target_pos_w[..., 0, :]
+    d = torch.norm(cube_pos_w - ee_w, dim=1)
+    return 1.0 - torch.tanh(d / std)
+
+
+def cube_2_is_lifted(
+    env: "ManagerBasedRLEnv",
+    minimal_height: float = 0.04,
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube_2"),
+) -> torch.Tensor:
+    """`1.0 if cube_2.z_w > minimal_height else 0.0`."""
+    cube: RigidObject = env.scene[cube_cfg.name]
+    return torch.where(cube.data.root_pos_w[:, 2] > minimal_height, 1.0, 0.0)
+
+
+def cube_2_ee_distance_gated_on_cube_0_stacked(
+    env: "ManagerBasedRLEnv",
+    std: float = 0.1,
+) -> torch.Tensor:
+    """Reach cube_2 — only fires while cube_0 IS CURRENTLY stacked on cube_1.
+
+    Iter-4 change: gate switched from a sticky "stacked at any point this
+    episode" latch to the current-frame geometric check. Forces the policy to
+    keep cube_0 on cube_1 while engaging cube_2 — if cube_0 falls off, the
+    cube_2 reward shuts off.
+    """
+    return cube_2_ee_distance(env, std=std) * cube_0_currently_stacked_on_cube_1_indicator(env)
+
+
+def cube_2_is_lifted_gated_on_cube_0_stacked(
+    env: "ManagerBasedRLEnv",
+    minimal_height: float = 0.04,
+) -> torch.Tensor:
+    """Lift cube_2 — only fires while cube_0 IS CURRENTLY stacked on cube_1."""
+    return cube_2_is_lifted(env, minimal_height=minimal_height) * cube_0_currently_stacked_on_cube_1_indicator(env)
+
+
+# ---------------------------------------------------------------------------
+# 3-tier tower extension (iter 23): cube_1 → cube_2 stage + full-tower bonus.
+#
+# Design mirror of cube_0 helpers, retargeted to (cube_1 top, cube_2 base).
+# The goal-distance helper for cube_0 is REPLACED below by a staged variant
+# that additionally requires cube_1 to be already stacked on cube_2 before
+# the dense goal-tracking signal fires — so the policy is pulled through the
+# curriculum: stack cube_1 first, then cube_0.
+# ---------------------------------------------------------------------------
+
+
+def cube_1_ee_distance(
+    env: "ManagerBasedRLEnv",
+    std: float = 0.1,
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube_1"),
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+    """`1 - tanh(||cube_1 - ee_w|| / std)` — mirror of `cube_0_ee_distance` for cube_1."""
+    cube: RigidObject = env.scene[cube_cfg.name]
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    cube_pos_w = cube.data.root_pos_w[:, :3]
+    ee_w = ee_frame.data.target_pos_w[..., 0, :]
+    d = torch.norm(cube_pos_w - ee_w, dim=1)
+    return 1.0 - torch.tanh(d / std)
+
+
+def cube_1_is_lifted(
+    env: "ManagerBasedRLEnv",
+    minimal_height: float = 0.04,
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube_1"),
+) -> torch.Tensor:
+    """`1.0 if cube_1.z_w > minimal_height else 0.0`."""
+    cube: RigidObject = env.scene[cube_cfg.name]
+    return torch.where(cube.data.root_pos_w[:, 2] > minimal_height, 1.0, 0.0)
+
+
+def cube_1_goal_distance(
+    env: "ManagerBasedRLEnv",
+    std: float,
+    minimal_height: float = 0.04,
+    cube_cfg: SceneEntityCfg = SceneEntityCfg("cube_1"),
+    goal_cube_cfg: SceneEntityCfg = SceneEntityCfg("cube_2"),
+) -> torch.Tensor:
+    """`(cube_1 lifted) * (1 - tanh(d / std))`.
+
+    Target is `cube_2.pos_w + [0, 0, CUBE_SIZE]` (cube_1's stacked-on-cube_2
+    pose). Mirror of `cube_0_goal_distance` retargeted to the lower pair.
+    """
+    cube_1: RigidObject = env.scene[cube_cfg.name]
+    cube_2: RigidObject = env.scene[goal_cube_cfg.name]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    pos_2 = cube_2.data.root_pos_w[:, :3]
+    target_w = pos_2.clone()
+    target_w[:, 2] = target_w[:, 2] + CUBE_SIZE
+    distance = torch.norm(target_w - pos_1, dim=1)
+    lifted = pos_1[:, 2] > minimal_height
+    return lifted.float() * (1.0 - torch.tanh(distance / std))
+
+
+def cube_1_stacked_on_cube_2_bonus(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+    cube_1_cfg: SceneEntityCfg = SceneEntityCfg("cube_1"),
+    cube_2_cfg: SceneEntityCfg = SceneEntityCfg("cube_2"),
+) -> torch.Tensor:
+    """`1.0 if cube_1 is stacked on cube_2 else 0.0` — sparse stage-1 bonus."""
+    cube_1: RigidObject = env.scene[cube_1_cfg.name]
+    cube_2: RigidObject = env.scene[cube_2_cfg.name]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    pos_2 = cube_2.data.root_pos_w[:, :3]
+    xy_dist = torch.norm(pos_1[:, :2] - pos_2[:, :2], dim=-1)
+    z_gap = pos_1[:, 2] - pos_2[:, 2]
+    aligned_xy = xy_dist < xy_threshold
+    on_top_z = torch.abs(z_gap - CUBE_SIZE) < z_threshold
+    return (aligned_xy & on_top_z).float()
+
+
+# ---------------------------------------------------------------------------
+# iter 25 — strict curriculum helpers: gate ALL cube_0 shaping on cube_1-on-cube_2
+# ---------------------------------------------------------------------------
+
+
+def cube_1_on_cube_2_indicator(
+    env, xy_threshold: float = 0.02, z_threshold: float = 0.01
+) -> torch.Tensor:
+    """Float (num_envs,) indicator: 1.0 iff cube_1 is stacked on cube_2 right now."""
+    cube_1 = env.scene["cube_1"]; cube_2 = env.scene["cube_2"]
+    p1 = cube_1.data.root_pos_w[:, :3]; p2 = cube_2.data.root_pos_w[:, :3]
+    xy_ok = torch.norm(p1[:, :2] - p2[:, :2], dim=-1) < xy_threshold
+    z_ok  = torch.abs((p1[:, 2] - p2[:, 2]) - CUBE_SIZE) < z_threshold
+    return (xy_ok & z_ok).float()
+
+
+def cube_0_ee_distance_gated(env, std: float = 0.1) -> torch.Tensor:
+    """Reaching cube_0 — multiplied by the cube_1_on_cube_2 indicator.
+
+    Zero reward for reaching cube_0 until the base pair (cube_1 on cube_2)
+    is already in place. Closes the iter-24 loophole that let the policy
+    collect cube_0 reaching/lifting reward while ignoring cube_1.
+    """
+    gate = cube_1_on_cube_2_indicator(env)
+    return cube_0_ee_distance(env, std=std) * gate
+
+
+def cube_0_is_lifted_gated(env, minimal_height: float = 0.04) -> torch.Tensor:
+    """Lifting cube_0 — multiplied by the cube_1_on_cube_2 indicator."""
+    gate = cube_1_on_cube_2_indicator(env)
+    return cube_0_is_lifted(env, minimal_height=minimal_height) * gate
+
+
+def cube_0_goal_distance_staged(
+    env: "ManagerBasedRLEnv",
+    std: float,
+    minimal_height: float = 0.04,
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+    cube_0_cfg: SceneEntityCfg = SceneEntityCfg("cube_0"),
+    cube_1_cfg: SceneEntityCfg = SceneEntityCfg("cube_1"),
+    cube_2_cfg: SceneEntityCfg = SceneEntityCfg("cube_2"),
+) -> torch.Tensor:
+    """Staged version of `cube_0_goal_distance` for the 3-tier tower.
+
+    `(cube_0 lifted) * (cube_1 stacked on cube_2) * (1 - tanh(d / std))`,
+    where the target is the CURRENT `cube_1.pos_w + [0, 0, CUBE_SIZE]`.
+
+    Two gates: cube_0 must be lifted AND cube_1 must already be stacked on
+    cube_2. The second gate prevents the policy from being rewarded for
+    placing cube_0 on a free-floating cube_1, which would dis-incentivize
+    completing the lower pair first.
+    """
+    cube_0: RigidObject = env.scene[cube_0_cfg.name]
+    cube_1: RigidObject = env.scene[cube_1_cfg.name]
+    cube_2: RigidObject = env.scene[cube_2_cfg.name]
+    pos_0 = cube_0.data.root_pos_w[:, :3]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    pos_2 = cube_2.data.root_pos_w[:, :3]
+    target_w = pos_1.clone()
+    target_w[:, 2] = target_w[:, 2] + CUBE_SIZE
+    distance = torch.norm(target_w - pos_0, dim=1)
+    lifted = pos_0[:, 2] > minimal_height
+    # Lower pair already stacked? (uses the same geometric check as the bonus)
+    xy_dist_12 = torch.norm(pos_1[:, :2] - pos_2[:, :2], dim=-1)
+    z_gap_12 = pos_1[:, 2] - pos_2[:, 2]
+    lower_stacked = (xy_dist_12 < xy_threshold) & (torch.abs(z_gap_12 - CUBE_SIZE) < z_threshold)
+    gate = lifted & lower_stacked
+    return gate.float() * (1.0 - torch.tanh(distance / std))
+
+
+def cube_0_stacked_bonus_gated(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+) -> torch.Tensor:
+    """+1.0 iff cube_0 is stacked on cube_1 AND cube_1 is already stacked on cube_2.
+
+    Closes the iter-23 curriculum loophole: the legacy `mdp.cube_0_stacked_bonus`
+    fires geometrically regardless of cube_1 placement, allowing the policy to
+    short-circuit by dropping cube_0 on a free-floating cube_1. This gated
+    variant requires the base pair (cube_1 on cube_2) to hold first so the
+    +200 sparse bonus can only be claimed AFTER stage-1 completes.
+    """
+    cube_0: RigidObject = env.scene["cube_0"]
+    cube_1: RigidObject = env.scene["cube_1"]
+    cube_2: RigidObject = env.scene["cube_2"]
+    p0 = cube_0.data.root_pos_w[:, :3]
+    p1 = cube_1.data.root_pos_w[:, :3]
+    p2 = cube_2.data.root_pos_w[:, :3]
+    cube_0_on_1 = (
+        (torch.norm(p0[:, :2] - p1[:, :2], dim=-1) < xy_threshold)
+        & (torch.abs((p0[:, 2] - p1[:, 2]) - CUBE_SIZE) < z_threshold)
+    )
+    cube_1_on_2 = (
+        (torch.norm(p1[:, :2] - p2[:, :2], dim=-1) < xy_threshold)
+        & (torch.abs((p1[:, 2] - p2[:, 2]) - CUBE_SIZE) < z_threshold)
+    )
+    return (cube_0_on_1 & cube_1_on_2).float()
+
+
+# ---------------------------------------------------------------------------
+# iter 32 — LOOSE-shaping helpers: cube_0 shaping gated on cube_1 LIFTED
+# (not strictly stacked on cube_2). Opens the gate ~31% of the time instead of
+# ~8% (iter-26 policy stats), giving PPO 4× more learning windows to bootstrap
+# cube_0 manipulation while the sparse bonuses and full_tower stay on the
+# strict stacked gate so the "drop cube_0 on a free-floating cube_1" shortcut
+# still pays zero.
+# ---------------------------------------------------------------------------
+
+
+def cube_1_is_lifted_indicator(env, minimal_height: float = 0.04) -> torch.Tensor:
+    """Float (num_envs,) indicator: 1.0 iff cube_1 is currently above `minimal_height`.
+
+    Looser gate than `cube_1_on_cube_2_indicator` — fires whenever cube_1 is in
+    the air, not just when it's stacked. Used by iter-32's loose-shaping pattern:
+    cube_0 shaping reward becomes available as soon as cube_1 is lifted (gives the
+    policy more learning windows to bootstrap cube_0 manipulation) while the cube_0
+    sparse bonus and full_tower bonus remain on the strict stacked gate so the
+    'just stack cube_0 on a free-floating cube_1' shortcut still pays zero.
+    """
+    cube_1 = env.scene["cube_1"]
+    return (cube_1.data.root_pos_w[:, 2] > minimal_height).float()
+
+
+def cube_0_ee_distance_loose_gated(env, std: float = 0.1, minimal_height: float = 0.04) -> torch.Tensor:
+    """Reaching cube_0, gated on cube_1 being LIFTED (not strictly stacked).
+
+    iter-32 loose-gated variant of `cube_0_ee_distance_gated`. Opens whenever
+    cube_1 is in the air (~31% of frames in the iter-26 policy) instead of
+    only when cube_1 is geometrically stacked on cube_2 (~8% of frames).
+    """
+    return cube_0_ee_distance(env, std=std) * cube_1_is_lifted_indicator(env, minimal_height=minimal_height)
+
+
+def cube_0_is_lifted_loose_gated(env, minimal_height: float = 0.04) -> torch.Tensor:
+    """Lifting cube_0, gated on cube_1 being LIFTED (not strictly stacked).
+
+    iter-32 loose-gated variant of `cube_0_is_lifted_gated`. Pairs with
+    `cube_0_ee_distance_loose_gated` to expose cube_0 manipulation shaping to
+    the policy as soon as cube_1 is airborne.
+    """
+    return cube_0_is_lifted(env, minimal_height=minimal_height) * cube_1_is_lifted_indicator(env, minimal_height=minimal_height)
+
+
+def cube_0_goal_distance_loose_staged(env, std: float, minimal_height: float = 0.04) -> torch.Tensor:
+    """Two-part loose gate (cube_0 lifted AND cube_1 lifted) * (1 - tanh(d_to_goal/std)).
+
+    Goal = current `cube_1.pos_w + [0, 0, CUBE_SIZE]` (same as the strict
+    variant `cube_0_goal_distance_staged`, just a looser gate on cube_1's
+    state — requires cube_1 LIFTED, not strictly stacked on cube_2). This
+    keeps the cube_0 dense goal-tracking signal alive across the larger
+    set of frames where cube_1 is airborne.
+    """
+    cube_0 = env.scene["cube_0"]
+    cube_1 = env.scene["cube_1"]
+    p0 = cube_0.data.root_pos_w[:, :3]
+    p1 = cube_1.data.root_pos_w[:, :3]
+    target = p1.clone()
+    target[:, 2] = target[:, 2] + CUBE_SIZE
+    distance = torch.norm(target - p0, dim=1)
+    cube_0_lifted = p0[:, 2] > minimal_height
+    cube_1_lifted = p1[:, 2] > minimal_height
+    gate = (cube_0_lifted & cube_1_lifted).float()
+    return gate * (1.0 - torch.tanh(distance / std))
+
+
+# ---------------------------------------------------------------------------
+# iter 33 — LATCHED cube_0 shaping helpers
+#
+# Per-episode per-env latch: once cube_1 has been stacked on cube_2 AT LEAST
+# ONCE in this episode the latch stays True for the rest of the episode. Uses
+# the same module-level `_LATCH_BUFFERS` dict declared near the top of this
+# file. Resets via `env.episode_length_buf <= 1` (post-`_reset_idx` the first
+# step's episode_length_buf is 1, so this is a safe edge).
+#
+# iter 32 (loose-lifted gate) gave the policy a "lift cube_1 then collect
+# cube_0 shaping" shortcut. iter 33 closes that by REQUIRING a true stack
+# (latched) to open the shaping gate. Strict sparse bonuses unchanged.
+# ---------------------------------------------------------------------------
+
+
+def cube_1_was_stacked_latched_indicator(
+    env, xy_threshold: float = 0.02, z_threshold: float = 0.01
+) -> torch.Tensor:
+    """Float (num_envs,) indicator: 1.0 iff cube_1 has been stacked on cube_2 AT LEAST ONCE this episode.
+
+    Per-env latch:
+      - Reset to False when `env.episode_length_buf <= 1` (the very first step
+        after `_reset_idx` sets the counter to 0 then `step` increments to 1).
+      - Set to True whenever the instantaneous `cube_1_on_cube_2` geometric
+        check fires.
+      - Stays True until the next episode resets the latch.
+
+    Gives the policy ~150-200 frames of cube_0 shaping signal per stage-1-
+    success episode (instead of the ~21 transient frames the strict
+    instantaneous gate yields), while blocking the iter-32 "fake the lift then
+    chase cube_0" shortcut (the gate now requires a true stack, not just a
+    lift).
+
+    Caveat: state lives in a module-level dict keyed by id(env); safe for the
+    reward-tune loop (one train at a time). Resets across Python process
+    restarts because the dict is in-process state.
+    """
+    latch = _get_latch_buffer(env, "cube_1_stacked")
+
+    # Reset latch for envs that just started a new episode.
+    just_reset = env.episode_length_buf <= 1
+    latch = torch.where(just_reset, torch.zeros_like(latch), latch)
+
+    # Instantaneous cube_1 on cube_2 check (same geometry as the sparse bonus).
+    cube_1 = env.scene["cube_1"]
+    cube_2 = env.scene["cube_2"]
+    p1 = cube_1.data.root_pos_w[:, :3]
+    p2 = cube_2.data.root_pos_w[:, :3]
+    xy_ok = torch.norm(p1[:, :2] - p2[:, :2], dim=-1) < xy_threshold
+    z_ok = torch.abs((p1[:, 2] - p2[:, 2]) - CUBE_SIZE) < z_threshold
+    now_stacked = xy_ok & z_ok
+
+    # Sticky update — once True, stays True for the rest of the episode.
+    latch = latch | now_stacked
+
+    # Save back. (Cannot use in-place ops because `torch.where` returned a
+    # fresh tensor on the reset branch; we rebind the dict entry instead.)
+    _LATCH_BUFFERS[(id(env), "cube_1_stacked")] = latch
+
+    return latch.float()
+
+
+def cube_0_ee_distance_latched_gated(env, std: float = 0.1) -> torch.Tensor:
+    """Reaching cube_0 — LATCHED gate (fires for rest of episode once cube_1 was stacked)."""
+    return cube_0_ee_distance(env, std=std) * cube_1_was_stacked_latched_indicator(env)
+
+
+def cube_0_is_lifted_latched_gated(env, minimal_height: float = 0.04) -> torch.Tensor:
+    """Lifting cube_0 — LATCHED gate (fires for rest of episode once cube_1 was stacked)."""
+    return cube_0_is_lifted(env, minimal_height=minimal_height) * cube_1_was_stacked_latched_indicator(env)
+
+
+def cube_0_goal_distance_latched_staged(env, std: float, minimal_height: float = 0.04) -> torch.Tensor:
+    """Two-part gate (cube_0 lifted AND cube_1-was-stacked-latched) * (1 - tanh(d/std)).
+
+    Goal = current `cube_1.pos_w + [0, 0, CUBE_SIZE]` (same as the existing
+    strict variant `cube_0_goal_distance_staged`). The cube_1 check is the
+    LATCHED version so the gate stays open even if cube_1 has fallen off
+    cube_2 again — preserving the cube_0 shaping signal across the full
+    bootstrap window once stage 1 has succeeded at any point this episode.
+    """
+    cube_0 = env.scene["cube_0"]
+    cube_1 = env.scene["cube_1"]
+    p0 = cube_0.data.root_pos_w[:, :3]
+    p1 = cube_1.data.root_pos_w[:, :3]
+    target = p1.clone()
+    target[:, 2] = target[:, 2] + CUBE_SIZE
+    distance = torch.norm(target - p0, dim=1)
+    cube_0_lifted = p0[:, 2] > minimal_height
+    latch = cube_1_was_stacked_latched_indicator(env) > 0.5
+    gate = (cube_0_lifted & latch).float()
+    return gate * (1.0 - torch.tanh(distance / std))
+
+
+def three_tier_tower_bonus(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+) -> torch.Tensor:
+    """`1.0 if BOTH (cube_0 on cube_1) AND (cube_1 on cube_2) else 0.0`.
+
+    Matches the geometric condition of `mdp.three_tier_tower_stacked` (the
+    success termination). Without this term the policy could earn the sum of
+    `cube_0_stacked_bonus` + `cube_1_stacked_on_cube_2_bonus` even when the
+    two pairs are NOT simultaneously aligned (e.g. cube_0 lands on cube_1
+    after cube_1 has already wobbled off cube_2). The full-tower bonus closes
+    that loophole and aligns the dense reward with the success termination.
+    """
+    cube_0: RigidObject = env.scene["cube_0"]
+    cube_1: RigidObject = env.scene["cube_1"]
+    cube_2: RigidObject = env.scene["cube_2"]
+    pos_0 = cube_0.data.root_pos_w[:, :3]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    pos_2 = cube_2.data.root_pos_w[:, :3]
+    # Upper pair: cube_0 on cube_1
+    xy_01 = torch.norm(pos_0[:, :2] - pos_1[:, :2], dim=-1)
+    z_01 = pos_0[:, 2] - pos_1[:, 2]
+    upper = (xy_01 < xy_threshold) & (torch.abs(z_01 - CUBE_SIZE) < z_threshold)
+    # Lower pair: cube_1 on cube_2
+    xy_12 = torch.norm(pos_1[:, :2] - pos_2[:, :2], dim=-1)
+    z_12 = pos_1[:, 2] - pos_2[:, 2]
+    lower = (xy_12 < xy_threshold) & (torch.abs(z_12 - CUBE_SIZE) < z_threshold)
+    return (upper & lower).float()
 
 
 # ---------------------------------------------------------------------------

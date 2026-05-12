@@ -25,7 +25,9 @@ joint6 +0.3 from canonical) is preserved.
 
 Cube asset: DexCube USD from `${ISAAC_NUCLEUS_DIR}/Props/Blocks/DexCube/`,
 scaled by 0.86 to a 4.3 cm edge (the unscaled DexCube bounding box is 5 cm).
-Mass overridden to 0.055 kg via `mass_props`.
+Mass overridden to 0.055 kg via `mass_props`. Edit_mode_012 installs THREE
+cubes (cube_0, cube_1, cube_2) spread in XY so the ±5 cm reset perturbation
+does not collide them at reset.
 
 End-effector sensor: `FrameTransformerCfg` rooted at `panda_link0` and tracking
 `panda_hand` with a [0, 0, 0.1034] offset (LiftCube convention) — used by
@@ -144,6 +146,9 @@ class FrankaStackCubeEnvCfg(StackCubeEnvCfg):
             ),
         )
 
+        # Three DexCubes — tower base = cube_2 on the table, cube_1 on cube_2,
+        # cube_0 on cube_1 at the goal pose. Initial XY positions are spread
+        # so the random ±5 cm reset perturbation cannot collide them.
         self.scene.cube_0 = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Cube_0",
             init_state=RigidObjectCfg.InitialStateCfg(pos=[0.45, -0.10, CUBE_INIT_Z], rot=[1.0, 0.0, 0.0, 0.0]),
@@ -152,6 +157,11 @@ class FrankaStackCubeEnvCfg(StackCubeEnvCfg):
         self.scene.cube_1 = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Cube_1",
             init_state=RigidObjectCfg.InitialStateCfg(pos=[0.55, 0.10, CUBE_INIT_Z], rot=[1.0, 0.0, 0.0, 0.0]),
+            spawn=cube_spawn,
+        )
+        self.scene.cube_2 = RigidObjectCfg(
+            prim_path="{ENV_REGEX_NS}/Cube_2",
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.50, 0.20, CUBE_INIT_Z], rot=[1.0, 0.0, 0.0, 0.0]),
             spawn=cube_spawn,
         )
 
