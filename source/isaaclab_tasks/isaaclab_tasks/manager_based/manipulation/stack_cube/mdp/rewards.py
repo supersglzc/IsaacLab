@@ -116,7 +116,7 @@ def grasping_cube_ee_distance(
     effective_std = torch.where(on_stack, torch.full_like(d, std_b), torch.full_like(d, std))
     base = 1.0 - torch.tanh(d / effective_std)
     # State B: scale base by 100× and add the +1.0 compensation; state A unchanged.
-    return torch.where(on_stack, 100.0 * base + 1.0, base)
+    return torch.where(on_stack, 20.0 * base + 1.0, base)
 
 
 def grasping_cube_is_lifted(
@@ -135,7 +135,7 @@ def grasping_cube_is_lifted(
     z = torch.where(on_stack, z_2, z_0)
     lifted = torch.where(z > minimal_height, 1.0, 0.0)
     # State B: scale base by 10× and add the +1.0 compensation; state A unchanged.
-    return torch.where(on_stack, 100.0 * lifted + 1.0, lifted)
+    return torch.where(on_stack, 10.0 * lifted + 1.0, lifted)
 
 
 def grasping_cube_goal_distance(
@@ -163,7 +163,7 @@ def grasping_cube_goal_distance(
     lifted = (grasping_pos[:, 2] > minimal_height).float()
     base = lifted * (1.0 - torch.tanh(d / std))
     # State B: scale base by 10× and add the +1.0 compensation; state A unchanged.
-    return torch.where(on_stack, 100.0 * base + 1.0, base)
+    return torch.where(on_stack, 20.0 * base + 1.0, base)
 
 
 # iter 33 — module-level per-env latch buffers (keyed by id(env), key_str).

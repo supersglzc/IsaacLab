@@ -27,10 +27,32 @@ from typing import TYPE_CHECKING
 import torch
 
 from isaaclab.assets import RigidObject
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.sensors import FrameTransformer
 from isaaclab.utils.math import subtract_frame_transforms
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
+
+
+def ee_pose_in_robot_root_frame(
+    env: "ManagerBasedRLEnv",
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+    """7-D end-effector pose in the robot root frame: `[x, y, z, qw, qx, qy, qz]`.
+
+    Reads world-frame EE pose from the `ee_frame` FrameTransformer (target 0;
+    LiftCube convention: `panda_hand` with [0,0,0.1034] offset) and transforms
+    it into the robot's root frame via `subtract_frame_transforms`.
+    """
+    robot: RigidObject = env.scene["robot"]
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    ee_pos_w = ee_frame.data.target_pos_w[..., 0, :]
+    ee_quat_w = ee_frame.data.target_quat_w[..., 0, :]
+    ee_pos_b, ee_quat_b = subtract_frame_transforms(
+        robot.data.root_pos_w, robot.data.root_quat_w, ee_pos_w, ee_quat_w
+    )
+    return torch.cat([ee_pos_b, ee_quat_b], dim=-1)
 
 
 # Cube edge length — must stay in sync with the constant in rewards.py /

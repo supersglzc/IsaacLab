@@ -178,11 +178,12 @@ class ObservationsCfg:
 
     @configclass
     class PolicyCfg(ObsGroup):
-        # Concatenation order: joint_pos -> grasping_cube_position ->
-        # grasping_target_position -> actions. `joint_pos_rel` defaults to
-        # ALL 9 robot joints (7 arm + 2 fingers; LiftCube canonical), so the
-        # actual obs width is 9+3+3+4 = 19. smoke_s5 pins the actual layout.
-        joint_pos = ObsTerm(func=mdp.joint_pos_rel)
+        # Concatenation order: ee_pose -> grasping_cube_position ->
+        # grasping_target_position -> actions. ee_pose is 7-D (xyz + quat in
+        # robot root frame) — replaces joint_pos (9-D) since the action is
+        # task-space EE-delta and the policy benefits more from direct EE state.
+        # Total obs width = 7+3+3+4 = 17.
+        ee_pose = ObsTerm(func=mdp.ee_pose_in_robot_root_frame)
         grasping_cube_position = ObsTerm(func=mdp.grasping_cube_position_in_robot_root_frame)
         grasping_target_position = ObsTerm(func=mdp.grasping_target_position_in_robot_root_frame)
         actions = ObsTerm(func=mdp.last_action)
@@ -214,7 +215,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.4, 0.5), "y": (-0.25, -0.15), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.4, 0.5), "y": (0.15, 0.25), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_0"),
         },
@@ -232,7 +233,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.4, 0.5), "y": (0.15, 0.25), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.4, 0.5), "y": (-0.25, -0.15), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_2"),
         },
@@ -266,9 +267,14 @@ class RewardsCfg:
     in `mdp/rewards.py` are PRESERVED but unreferenced — kept for rollback.
     """
 
+    # Two-band reach:
+    #   reach_fine   — peaked (std=0.1) for precise contact in STATE B ONLY
+    #                  (zero in state A so the cube_0 phase isn't perturbed).
+    #   reach_coarse — broad (std=0.3) attractor in BOTH states.
+    # Both call the same grasping-cube mux function (cube_0 in A / cube_2 in B).
     reach = RewTerm(
         func=mdp.grasping_cube_ee_distance,
-        params={"std": 0.2, "std_state_b": 0.15},
+        params={"std": 0.2},
         weight=0.02,
     )
     lift = RewTerm(
@@ -310,27 +316,35 @@ class RewardsCfg:
 
 @configclass
 class TerminationsCfg:
-    """Time-out (truncation) + success (3-tier tower) + stack-broken failure.
+    """Time-out (truncation) + two failure terminations:
+
+      - `stack_broken`        — 2-cube stack broken: cube_0 was on cube_1 at
+                                some point this episode and isn't now.
+      - `tower_broken`        — 3-cube stack broken: the full tower
+                                (cube_0-on-cube_1 AND cube_2-on-cube_0) was
+                                assembled at some point and isn't now.
+
+    Success is NOT a termination — the agent keeps the full horizon to hold
+    the tower together. Either pair coming apart after assembly ends the
+    episode.
 
     Tower order (bottom-up): cube_1 (base on table) → cube_0 → cube_2 (top).
-    Success requires BOTH cube_0-on-cube_1 AND cube_2-on-cube_0.
     """
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    # Success: 3-tier tower. AND of:
-    #   |cube_0.xy - cube_1.xy| < xy_threshold AND |Δz_0_1 - CUBE_SIZE| < z_threshold
-    #   |cube_2.xy - cube_0.xy| < xy_threshold AND |Δz_2_0 - CUBE_SIZE| < z_threshold
-    success = DoneTerm(
-        func=mdp.three_tier_tower_stacked,
-        params={"xy_threshold": 0.02, "z_threshold": 0.01},
-    )
-
     # Failure: cube_0 was stacked at some point this episode AND is now no
-    # longer stacked. Mirrors the `stack_broke_penalty` trigger so the −500
+    # longer stacked. Mirrors the `stack_broke_penalty` reward trigger so the
     # penalty fires the same step the episode terminates.
     stack_broken = DoneTerm(
         func=mdp.cube_0_stack_broken,
+        params={"xy_threshold": 0.02, "z_threshold": 0.01},
+    )
+
+    # Failure: full 3-tier tower was built (latch `three_tier_tower_once` set
+    # by `three_tier_tower_bonus_once_per_episode`) AND is now broken.
+    tower_broken = DoneTerm(
+        func=mdp.three_tier_tower_broken,
         params={"xy_threshold": 0.02, "z_threshold": 0.01},
     )
 

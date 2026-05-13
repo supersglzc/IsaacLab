@@ -203,3 +203,42 @@ def cube_0_stack_broken(
     currently_stacked = (xy_dist < xy_threshold) & (torch.abs(z_gap - CUBE_SIZE) < z_threshold)
     just_reset = env.episode_length_buf <= 1
     return stacked_once & (~currently_stacked) & (~just_reset)
+
+
+def three_tier_tower_broken(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+) -> torch.Tensor:
+    """True when the FULL 3-tier tower was assembled at some point this episode
+    AND is currently no longer assembled.
+
+    Reads the per-env `three_tier_tower_once` latch maintained by
+    `mdp.rewards.three_tier_tower_bonus_once_per_episode`. Same just-reset
+    gate as `cube_0_stack_broken` to avoid spurious step-1 fires from a stale
+    latch (TerminationManager runs before RewardManager).
+    """
+    from .rewards import _LATCH_BUFFERS
+    key = (id(env), "three_tier_tower_once")
+    if key not in _LATCH_BUFFERS:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    tower_once = _LATCH_BUFFERS[key]
+
+    cube_0 = env.scene["cube_0"]
+    cube_1 = env.scene["cube_1"]
+    cube_2 = env.scene["cube_2"]
+    pos_0 = cube_0.data.root_pos_w[:, :3]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    pos_2 = cube_2.data.root_pos_w[:, :3]
+    # Upper pair: cube_0 on cube_1
+    xy_01 = torch.norm(pos_0[:, :2] - pos_1[:, :2], dim=-1)
+    z_01 = pos_0[:, 2] - pos_1[:, 2]
+    upper = (xy_01 < xy_threshold) & (torch.abs(z_01 - CUBE_SIZE) < z_threshold)
+    # Top pair: cube_2 on cube_0
+    xy_20 = torch.norm(pos_2[:, :2] - pos_0[:, :2], dim=-1)
+    z_20 = pos_2[:, 2] - pos_0[:, 2]
+    top = (xy_20 < xy_threshold) & (torch.abs(z_20 - CUBE_SIZE) < z_threshold)
+    currently_built = upper & top
+
+    just_reset = env.episode_length_buf <= 1
+    return tower_once & (~currently_built) & (~just_reset)

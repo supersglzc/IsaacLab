@@ -79,7 +79,7 @@ FRANKA_INIT_JOINT_POS = {
     "panda_joint4": -3 * math.pi / 4 - 0.3,   # bend elbow more to lower EE
     "panda_joint5": 0.0,
     "panda_joint6": math.pi / 2 + 0.3,        # counter-rotate wrist by same Δ to keep EE pointing down
-    "panda_joint7": math.pi / 4,
+    "panda_joint7": 3 * math.pi / 4,
     "panda_finger_joint.*": 0.04,
 }
 
