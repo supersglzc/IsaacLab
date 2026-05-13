@@ -151,17 +151,17 @@ class FrankaStackCubeEnvCfg(StackCubeEnvCfg):
         # so the random ±5 cm reset perturbation cannot collide them.
         self.scene.cube_0 = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Cube_0",
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.45, -0.10, CUBE_INIT_Z], rot=[1.0, 0.0, 0.0, 0.0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.0, 0.0, CUBE_INIT_Z], rot=[1.0, 0.0, 0.0, 0.0]),
             spawn=cube_spawn,
         )
         self.scene.cube_1 = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Cube_1",
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.55, 0.10, CUBE_INIT_Z], rot=[1.0, 0.0, 0.0, 0.0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.0, 0.0, CUBE_INIT_Z], rot=[1.0, 0.0, 0.0, 0.0]),
             spawn=cube_spawn,
         )
         self.scene.cube_2 = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Cube_2",
-            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.50, 0.20, CUBE_INIT_Z], rot=[1.0, 0.0, 0.0, 0.0]),
+            init_state=RigidObjectCfg.InitialStateCfg(pos=[0.0, 0.0, CUBE_INIT_Z], rot=[1.0, 0.0, 0.0, 0.0]),
             spawn=cube_spawn,
         )
 

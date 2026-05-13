@@ -9,6 +9,16 @@ Edit_mode_012 (3-tier tower): the policy sees joint_pos / joint_vel / per-cube
 positions (cube_0, cube_1, cube_2 all in robot root frame) / per-pair stack
 targets (cube_0 goal = top of cube_1; cube_1 goal = top of cube_2) /
 last_action.
+
+Edit_mode_013 (§5 re-author): the policy obs is collapsed to a 4-term layout
+(joint_pos + grasping_cube_position + grasping_target_position + actions = 23).
+joint_vel and the per-cube absolute positions are dropped from the obs; a
+stateless per-step mux switches the "currently relevant" cube + target based
+on whether cube_0 is already on cube_1 (predicate mirror of
+`mdp.terminations.cube_0_stacked_on_cube_1`). The dropped obs helpers
+(`cube_*_position_in_robot_root_frame`, `stack_target_*`) are KEPT in this
+file but no longer wired into ObservationsCfg — they may still be referenced
+by §6 reward code or future edits.
 """
 from __future__ import annotations
 
@@ -75,3 +85,49 @@ def stack_target_position_in_robot_root_frame(env: "ManagerBasedRLEnv") -> torch
 def cube_1_stack_target_position_in_robot_root_frame(env: "ManagerBasedRLEnv") -> torch.Tensor:
     """cube_1 goal = `cube_2.pos_w + [0, 0, CUBE_SIZE]` in the robot root frame."""
     return _stack_target_in_root_frame(env, "cube_2")
+
+
+def _cube_0_on_cube_1_predicate(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+) -> torch.Tensor:
+    """True per env when cube_0 is stacked on cube_1 (position-only).
+
+    Mirrors `mdp.terminations.cube_0_stacked_on_cube_1` but lives here so the
+    observation mux doesn't take a cross-module dependency on the termination
+    module. Same thresholds.
+    """
+    cube_0: RigidObject = env.scene["cube_0"]
+    cube_1: RigidObject = env.scene["cube_1"]
+    top = cube_0.data.root_pos_w[:, :3]
+    bot = cube_1.data.root_pos_w[:, :3]
+    xy_dist = torch.norm(top[:, :2] - bot[:, :2], dim=-1)
+    z_gap = top[:, 2] - bot[:, 2]
+    return (xy_dist < xy_threshold) & (torch.abs(z_gap - CUBE_SIZE) < z_threshold)
+
+
+def grasping_cube_position_in_robot_root_frame(env: "ManagerBasedRLEnv") -> torch.Tensor:
+    """xyz of the cube the policy currently needs to grasp (robot-root frame).
+
+    Stateless per-step mux:
+        cube_0_on_cube_1 -> cube_2   (second-stage target object)
+        otherwise        -> cube_0   (initial state OR after a drop reverts here)
+    """
+    cube_0_pos = _cube_pos_in_robot_root_frame(env, "cube_0")
+    cube_2_pos = _cube_pos_in_robot_root_frame(env, "cube_2")
+    use_cube_2 = _cube_0_on_cube_1_predicate(env).unsqueeze(-1)  # (N, 1)
+    return torch.where(use_cube_2, cube_2_pos, cube_0_pos)
+
+
+def grasping_target_position_in_robot_root_frame(env: "ManagerBasedRLEnv") -> torch.Tensor:
+    """xyz target for the current grasping cube (robot-root frame).
+
+    Stateless per-step mux:
+        cube_0_on_cube_1 -> cube_0.xyz + [0,0,CUBE_SIZE]   (cube_2 stacks on cube_0)
+        otherwise        -> cube_1.xyz + [0,0,CUBE_SIZE]   (cube_0 stacks on cube_1)
+    """
+    target_on_cube_1 = _stack_target_in_root_frame(env, "cube_1")
+    target_on_cube_0 = _stack_target_in_root_frame(env, "cube_0")
+    use_target_on_cube_0 = _cube_0_on_cube_1_predicate(env).unsqueeze(-1)
+    return torch.where(use_target_on_cube_0, target_on_cube_0, target_on_cube_1)

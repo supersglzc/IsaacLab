@@ -164,3 +164,42 @@ def any_cube_dropping(
         | (cube_1.data.root_pos_w[:, 2] < z_floor)
         | (cube_2.data.root_pos_w[:, 2] < z_floor)
     )
+
+
+def cube_0_stack_broken(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+) -> torch.Tensor:
+    """True when cube_0 had been successfully stacked at some point this episode
+    AND is currently no longer geometrically stacked on cube_1.
+
+    Reads the per-env `cube_0_stacked_once` latch maintained by
+    `mdp.rewards.cube_0_stacked_bonus_once_per_episode`. CRITICAL: IsaacLab
+    runs TerminationManager BEFORE RewardManager each step, so this function
+    sees the latch state from the PREVIOUS step — including the stale value
+    that survives an env reset until the reward function clears it. To avoid
+    firing this termination on step 1 of a new episode (when the latch is
+    stale from the prior episode), gate on `episode_length_buf > 1`.
+
+    Mirrors the trigger condition for
+    `mdp.cube_0_stack_broken_penalty_once_per_episode` (modulo the
+    just-reset gate) so the −500 penalty fires the same step the episode
+    terminates.
+    """
+    from .rewards import _LATCH_BUFFERS  # avoid module-level cross-import cycle
+    key = (id(env), "cube_0_stacked_once")
+    if key not in _LATCH_BUFFERS:
+        # No env has stacked cube_0 yet this episode — termination cannot fire.
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    stacked_once = _LATCH_BUFFERS[key]
+
+    cube_0: RigidObject = env.scene["cube_0"]
+    cube_1: RigidObject = env.scene["cube_1"]
+    pos_0 = cube_0.data.root_pos_w[:, :3]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    xy_dist = torch.norm(pos_0[:, :2] - pos_1[:, :2], dim=-1)
+    z_gap = pos_0[:, 2] - pos_1[:, 2]
+    currently_stacked = (xy_dist < xy_threshold) & (torch.abs(z_gap - CUBE_SIZE) < z_threshold)
+    just_reset = env.episode_length_buf <= 1
+    return stacked_once & (~currently_stacked) & (~just_reset)

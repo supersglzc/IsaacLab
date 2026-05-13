@@ -59,6 +59,105 @@ if TYPE_CHECKING:
 CUBE_SIZE = 0.043
 
 
+# ---------------------------------------------------------------------------
+# edit_mode_014 — grasping-cube predicate (private clone of
+# `mdp.observations._cube_0_on_cube_1_predicate`). Kept here to avoid the
+# cross-module dependency `rewards.py -> observations.py`. Identical thresholds
+# (xy<0.02 AND |Δz - CUBE_SIZE|<0.01). Used by the three grasping-cube reward
+# terms so the reward and observation mux flip on the same condition.
+# ---------------------------------------------------------------------------
+
+
+def _cube_0_on_cube_1_predicate(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+) -> torch.Tensor:
+    """True per env when cube_0 is geometrically stacked on cube_1.
+
+    Same thresholds as `mdp.observations._cube_0_on_cube_1_predicate` and
+    `mdp.terminations.cube_0_stacked_on_cube_1`. Mirrors the §5 obs mux so the
+    reward and observation switch at the same instant.
+    """
+    cube_0: RigidObject = env.scene["cube_0"]
+    cube_1: RigidObject = env.scene["cube_1"]
+    top = cube_0.data.root_pos_w[:, :3]
+    bot = cube_1.data.root_pos_w[:, :3]
+    xy_dist = torch.norm(top[:, :2] - bot[:, :2], dim=-1)
+    z_gap = top[:, 2] - bot[:, 2]
+    return (xy_dist < xy_threshold) & (torch.abs(z_gap - CUBE_SIZE) < z_threshold)
+
+
+def grasping_cube_ee_distance(
+    env: "ManagerBasedRLEnv",
+    std: float = 0.1,
+    ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+) -> torch.Tensor:
+    """`1 - tanh(||grasping_cube - ee|| / std)`.
+
+    grasping_cube = cube_0 when `_cube_0_on_cube_1_predicate` False, cube_2 when True.
+    Mux matches the §5 obs mux exactly.
+    """
+    cube_0 = env.scene["cube_0"]
+    cube_2 = env.scene["cube_2"]
+    ee_frame: FrameTransformer = env.scene[ee_frame_cfg.name]
+    pos_0 = cube_0.data.root_pos_w[:, :3]
+    pos_2 = cube_2.data.root_pos_w[:, :3]
+    on_stack = _cube_0_on_cube_1_predicate(env)            # bool (N,)
+    grasping_pos = torch.where(on_stack.unsqueeze(-1), pos_2, pos_0)
+    ee_w = ee_frame.data.target_pos_w[..., 0, :]
+    d = torch.norm(grasping_pos - ee_w, dim=1)
+    # Per-step state-B compensation: +1.0 (the per-step max of the state-A
+    # output) so the policy never loses dense reward by completing stage 1.
+    return (1.0 - torch.tanh(d / std)) + on_stack.float()
+
+
+def grasping_cube_is_lifted(
+    env: "ManagerBasedRLEnv",
+    minimal_height: float = 0.04,
+) -> torch.Tensor:
+    """`1.0 if grasping_cube.z_w > minimal_height else 0.0`.
+
+    Same grasping-cube mux as `grasping_cube_ee_distance`.
+    """
+    cube_0 = env.scene["cube_0"]
+    cube_2 = env.scene["cube_2"]
+    on_stack = _cube_0_on_cube_1_predicate(env)
+    z_0 = cube_0.data.root_pos_w[:, 2]
+    z_2 = cube_2.data.root_pos_w[:, 2]
+    z = torch.where(on_stack, z_2, z_0)
+    lifted = torch.where(z > minimal_height, 1.0, 0.0)
+    # Per-step state-B compensation: +1.0 (= state-A max) preserves dense reward across the flip.
+    return lifted + on_stack.float()
+
+
+def grasping_cube_goal_distance(
+    env: "ManagerBasedRLEnv",
+    std: float = 0.3,
+    minimal_height: float = 0.04,
+) -> torch.Tensor:
+    """`(grasping_cube lifted) * (1 - tanh(||grasping_cube - target|| / std))`.
+
+    target = cube_1.xyz + [0,0,CUBE_SIZE] when predicate False,
+             cube_0.xyz + [0,0,CUBE_SIZE] when True.
+    """
+    cube_0 = env.scene["cube_0"]
+    cube_1 = env.scene["cube_1"]
+    cube_2 = env.scene["cube_2"]
+    on_stack = _cube_0_on_cube_1_predicate(env)            # bool (N,)
+    pos_0 = cube_0.data.root_pos_w[:, :3]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    pos_2 = cube_2.data.root_pos_w[:, :3]
+    grasping_pos = torch.where(on_stack.unsqueeze(-1), pos_2, pos_0)
+    base_pos     = torch.where(on_stack.unsqueeze(-1), pos_0, pos_1)
+    target_pos   = base_pos.clone()
+    target_pos[:, 2] = target_pos[:, 2] + CUBE_SIZE
+    d = torch.norm(grasping_pos - target_pos, dim=1)
+    lifted = (grasping_pos[:, 2] > minimal_height).float()
+    # Per-step state-B compensation: +1.0 (= state-A max) preserves dense reward across the flip.
+    return lifted * (1.0 - torch.tanh(d / std)) + on_stack.float()
+
+
 # iter 33 — module-level per-env latch buffers (keyed by id(env), key_str).
 # Used by `cube_1_was_stacked_latched_indicator` to gate cube_0 shaping on
 # 'cube_1 has been stacked on cube_2 AT LEAST ONCE in this episode'. Once the
@@ -242,11 +341,53 @@ def cube_0_stacked_bonus_once_per_episode(
     geometric = (xy_dist < xy_threshold) & (torch.abs(z_gap - CUBE_SIZE) < z_threshold)
     far_enough = _gripper_far_from_cube_0(env, min_distance=gripper_away_min_distance)
     no_contact = _no_contact_between_cube_0_and_gripper_or_ee(env)
-    now_stacked = geometric & far_enough & no_contact
+    now_stacked = geometric & no_contact
 
     fire = now_stacked & (~latch)
     latch = latch | now_stacked
     _LATCH_BUFFERS[(id(env), "cube_0_stacked_once")] = latch
+    return fire.float()
+
+
+def three_tier_tower_bonus_once_per_episode(
+    env: "ManagerBasedRLEnv",
+    xy_threshold: float = 0.02,
+    z_threshold: float = 0.01,
+) -> torch.Tensor:
+    """+1.0 the FIRST step the full 3-tier tower is geometrically assembled, else 0.0.
+
+    Tower pairing matches `mdp.terminations.three_tier_tower_stacked`:
+        cube_0 on cube_1 (geometric: |Δxy|<xy_thr AND |Δz−CUBE_SIZE|<z_thr)
+        AND cube_2 on cube_0 (geometric, same thresholds)
+
+    Geometric-only (no gripper/contact gates) — once the cubes are stacked the
+    policy gets the bonus regardless of where the gripper is. Per-env latch
+    resets at `env.episode_length_buf <= 1` and locks once fired so the bonus
+    counts at most once per episode.
+    """
+    latch = _get_latch_buffer(env, "three_tier_tower_once")
+    just_reset = env.episode_length_buf <= 1
+    latch = torch.where(just_reset, torch.zeros_like(latch), latch)
+
+    cube_0 = env.scene["cube_0"]
+    cube_1 = env.scene["cube_1"]
+    cube_2 = env.scene["cube_2"]
+    pos_0 = cube_0.data.root_pos_w[:, :3]
+    pos_1 = cube_1.data.root_pos_w[:, :3]
+    pos_2 = cube_2.data.root_pos_w[:, :3]
+    # Upper pair: cube_0 on cube_1
+    xy_01 = torch.norm(pos_0[:, :2] - pos_1[:, :2], dim=-1)
+    z_01 = pos_0[:, 2] - pos_1[:, 2]
+    upper = (xy_01 < xy_threshold) & (torch.abs(z_01 - CUBE_SIZE) < z_threshold)
+    # Top pair: cube_2 on cube_0
+    xy_20 = torch.norm(pos_2[:, :2] - pos_0[:, :2], dim=-1)
+    z_20 = pos_2[:, 2] - pos_0[:, 2]
+    top = (xy_20 < xy_threshold) & (torch.abs(z_20 - CUBE_SIZE) < z_threshold)
+    tower_built = upper & top
+
+    fire = tower_built & (~latch)
+    latch = latch | tower_built
+    _LATCH_BUFFERS[(id(env), "three_tier_tower_once")] = latch
     return fire.float()
 
 

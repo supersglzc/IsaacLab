@@ -146,41 +146,44 @@ class ActionsCfg:
 
 @configclass
 class ObservationsCfg:
-    """Observation specs — 3-tier tower variant of LiftCube's PolicyCfg.
+    """Observation specs — 3-tier tower, grasping-cube state-machine mux.
 
     Edit_mode_012: extended to expose all three cubes plus two per-pair
     targets so the policy can drive cube_0 onto cube_1 (top of tower) AND
-    cube_1 onto cube_2 (base on table). Term order:
+    cube_1 onto cube_2 (base on table). (Term order is preserved in the §5
+    re-author note below.)
+
+    Edit_mode_013 (§5 re-author): the policy obs is collapsed to a 4-term
+    layout. `joint_vel` is dropped (the `joint_vel_l2` reward still reads
+    `robot.data` directly, not the obs, so the regularizer is unaffected).
+    All per-cube absolute positions and per-pair targets are replaced by a
+    stateless per-step mux on the predicate `cube_0_on_cube_1`:
+
+      not-yet-stacked: grasping_cube      <- cube_0
+                       grasping_target    <- cube_1.xyz + [0,0,CUBE_SIZE]
+      stacked:         grasping_cube      <- cube_2
+                       grasping_target    <- cube_0.xyz + [0,0,CUBE_SIZE]
+
+    New term order:
 
         joint_pos                  (9,)  — mdp.joint_pos_rel (all 9 robot joints)
-        joint_vel                  (9,)  — mdp.joint_vel_rel (all 9 robot joints)
-        cube_0_position            (3,)  — mdp.cube_0_position_in_robot_root_frame
-        cube_1_position            (3,)  — mdp.cube_1_position_in_robot_root_frame  (NEW)
-        cube_2_position            (3,)  — mdp.cube_2_position_in_robot_root_frame  (NEW)
-        cube_0_target_position     (3,)  — mdp.stack_target_position_in_robot_root_frame
-                                          (rename of `target_position`; still cube_1.pos + [0,0,CUBE_SIZE])
-        cube_1_target_position     (3,)  — mdp.cube_1_stack_target_position_in_robot_root_frame
-                                          (NEW; cube_2.pos + [0,0,CUBE_SIZE])
+        grasping_cube_position     (3,)  — mdp.grasping_cube_position_in_robot_root_frame
+        grasping_target_position   (3,)  — mdp.grasping_target_position_in_robot_root_frame
         actions                    (8,)  — mdp.last_action
-        Total = 9+9+3+3+3+3+3+8 = 41.
+        Total = 9+3+3+8 = 23.
 
     enable_corruption=True (LiftCube design preserved).
     """
 
     @configclass
     class PolicyCfg(ObsGroup):
-        # Concatenation order is preserved. Nominal arm-only dim sums to
-        # 7+7+3+3+3+3+3+8=37 but `joint_pos_rel` / `joint_vel_rel` default to
+        # Concatenation order: joint_pos -> grasping_cube_position ->
+        # grasping_target_position -> actions. `joint_pos_rel` defaults to
         # ALL 9 robot joints (7 arm + 2 fingers; LiftCube canonical), so the
-        # actual obs width is 9+9+3+3+3+3+3+8 = 41. smoke_s5 pins the actual
-        # layout.
+        # actual obs width is 9+3+3+8 = 23. smoke_s5 pins the actual layout.
         joint_pos = ObsTerm(func=mdp.joint_pos_rel)
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel)
-        cube_0_position = ObsTerm(func=mdp.cube_0_position_in_robot_root_frame)
-        cube_1_position = ObsTerm(func=mdp.cube_1_position_in_robot_root_frame)
-        cube_2_position = ObsTerm(func=mdp.cube_2_position_in_robot_root_frame)
-        cube_0_target_position = ObsTerm(func=mdp.stack_target_position_in_robot_root_frame)
-        cube_1_target_position = ObsTerm(func=mdp.cube_1_stack_target_position_in_robot_root_frame)
+        grasping_cube_position = ObsTerm(func=mdp.grasping_cube_position_in_robot_root_frame)
+        grasping_target_position = ObsTerm(func=mdp.grasping_target_position_in_robot_root_frame)
         actions = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self):
@@ -210,7 +213,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.45, 0.45), "y": (-0.25, -0.15), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_0"),
         },
@@ -219,7 +222,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.45, 0.45), "y": (-0.05, 0.05), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_1"),
         },
@@ -228,7 +231,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.45, 0.45), "y": (0.15, 0.25), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_2"),
         },
@@ -237,86 +240,63 @@ class EventCfg:
 
 @configclass
 class RewardsCfg:
-    """Restored 2-cube LiftCube-style reward (per user direction after the
-    3-cube reward-tune loop plateaued at 8.3% stage-1 / 0% full-tower success).
+    """Grasping-cube reward (§6 edit_mode_015): unified reach/lift/align on the
+    grasping cube (mux mirrors §5 obs) + retained success_bonus and
+    stack_broke_penalty + regularizers.
 
-    The §1/§3/§4/§5 environment stays 3-cube. Only §6 reverts: success_bonus
-    is the original geometric `cube_0_stacked_bonus` (fires when cube_0 sits
-    on cube_1 regardless of where cube_1 is).
+    Stateless per-step grasping-cube mux (same predicate as §5 obs):
+        not-yet-stacked (cube_0 NOT on cube_1):
+            grasping_cube   <- cube_0
+            target          <- cube_1.xyz + [0, 0, CUBE_SIZE]
+        stacked (cube_0 ON cube_1):
+            grasping_cube   <- cube_2
+            target          <- cube_0.xyz + [0, 0, CUBE_SIZE]
 
-    Five named stages + two regularizers:
+    Term order (weights match the pre-edit_mode_014 cube_0-phase scale):
+        reach                  — 1 - tanh(||ee - gc|| / 0.1)            w=0.02
+        lift                   — gc.z > 0.04                            w=0.1
+        align                  — lifted * (1 - tanh(||gc - target||/0.3)) w=0.32
+        success_bonus          — cube_0 stacked latch (once-per-episode) w=300
+        stack_broke_penalty    — cube_0 stack broken latch              w=-500
+        action_rate                                                     w=-2e-6
+        joint_vel                                                       w=-2e-6
 
-        reaching_object       — 1 - tanh(d_ee_cube_0 / 0.1)            w=+0.02
-        lifting_object        — 1.0 if cube_0.z > 0.04 else 0.0        w=+0.1
-        goal_tracking_coarse  — lifted * (1 - tanh(d / 0.3))           w=+0.32
-        goal_tracking_fine    — lifted * (1 - tanh(d / 0.05))          w=+0.0 (dormant)
-        success_bonus         — sparse cube_0-on-cube_1 indicator      w=+200.0
-        action_rate           — -||Δa||²                               w=-2e-6
-        joint_vel             — -||q̇||²                                w=-2e-6
-
-    Goal pose: cube_1.pos_w + [0, 0, CUBE_SIZE]. Composer: sum.
-
-    Expected interaction with the 3-cube env: the policy will stack cube_0 on
-    cube_1 (wherever cube_1 sits) ≈19% of episodes (iter_023 baseline). The
-    `TerminationsCfg.success` (three-tier tower) requires cube_1 on cube_2 too,
-    which this reward does not push toward — so success_rate ≈ 0%.
-
-    NOTE: IsaacLab RewardManager's `* dt` multiplier was REMOVED in this branch
-    (reward_manager.py:150). Weights are per-step magnitudes.
+    Composer: sum. Legacy cube_0_* / cube_2_* / three_tier_tower_* helpers
+    in `mdp/rewards.py` are PRESERVED but unreferenced — kept for rollback.
     """
 
-    # ----- 2-cube LiftCube reward restored (per user direction after iter 33) ----
-    # The §1/§3/§4/§5 environment stays 3-cube (three cubes, 3-tier success
-    # termination, new obs terms). Only §6 reverts: cube_0_stacked_bonus is
-    # the original geometric check (cube_0 on cube_1, regardless of cube_1
-    # location). Expected behavior: ~19% cube_0-on-cube_1 fire rate (iter_023
-    # baseline), ~0% full-tower success because the policy ignores cube_2.
-
-    reaching_object = RewTerm(
-        func=mdp.cube_0_ee_distance,
+    reach = RewTerm(
+        func=mdp.grasping_cube_ee_distance,
         params={"std": 0.1},
         weight=0.02,
     )
-
-    lifting_object = RewTerm(
-        func=mdp.cube_0_is_lifted,
+    lift = RewTerm(
+        func=mdp.grasping_cube_is_lifted,
         params={"minimal_height": 0.04},
         weight=0.1,
     )
-
-    goal_tracking_coarse = RewTerm(
-        func=mdp.cube_0_goal_distance,
-        params={"std": 0.3, "minimal_height": 0.04},
+    align = RewTerm(
+        func=mdp.grasping_cube_goal_distance,
+        params={"std": 0.1, "minimal_height": 0.04},
         weight=0.32,
     )
 
     success_bonus = RewTerm(
         func=mdp.cube_0_stacked_bonus_once_per_episode,
         params={"xy_threshold": 0.02, "z_threshold": 0.01},
-        weight=300.0,
+        weight=500.0,
     )
 
-    # Stage-2 shaping: reach + lift cube_2. Both gated on cube_0 CURRENTLY
-    # stacked on cube_1. reaching weight dropped 10→1.0 (iter 8) to make
-    # lifting the dominant stage-2 signal.
-    reaching_cube_2 = RewTerm(
-        func=mdp.cube_2_ee_distance_gated_on_cube_0_stacked,
-        params={"std": 0.1},
-        weight=1.0,
-    )
-    lifting_cube_2 = RewTerm(
-        func=mdp.cube_2_is_lifted_gated_on_cube_0_stacked,
-        params={"minimal_height": 0.04},
-        weight=10.0,
-    )
-
-    # One-time -100 penalty: cube_0 was successfully stacked at some point this
-    # episode (success_bonus latch fired) AND the stack subsequently broke.
-    # Discourages the policy from disturbing the stack while engaging cube_2.
     stack_broke_penalty = RewTerm(
         func=mdp.cube_0_stack_broken_penalty_once_per_episode,
         params={"xy_threshold": 0.02, "z_threshold": 0.01},
-        weight=-100.0,
+        weight=-500.0,
+    )
+
+    tower_bonus = RewTerm(
+        func=mdp.three_tier_tower_bonus_once_per_episode,
+        params={"xy_threshold": 0.02, "z_threshold": 0.01},
+        weight=1000.0,
     )
 
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-2e-6)
@@ -329,7 +309,7 @@ class RewardsCfg:
 
 @configclass
 class TerminationsCfg:
-    """Time-out + success (3-tier tower) + failure (cube_0 dropped).
+    """Time-out (truncation) + success (3-tier tower) + stack-broken failure.
 
     Tower order (bottom-up): cube_1 (base on table) → cube_0 → cube_2 (top).
     Success requires BOTH cube_0-on-cube_1 AND cube_2-on-cube_0.
@@ -337,17 +317,19 @@ class TerminationsCfg:
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
 
-    # Failure: cube_0 falls off the table (z below table_height by drop_margin).
-    cube_dropped = DoneTerm(
-        func=mdp.cube_0_dropping,
-        params={"drop_margin": 0.05, "table_height": 0.0},
-    )
-
     # Success: 3-tier tower. AND of:
     #   |cube_0.xy - cube_1.xy| < xy_threshold AND |Δz_0_1 - CUBE_SIZE| < z_threshold
     #   |cube_2.xy - cube_0.xy| < xy_threshold AND |Δz_2_0 - CUBE_SIZE| < z_threshold
     success = DoneTerm(
         func=mdp.three_tier_tower_stacked,
+        params={"xy_threshold": 0.02, "z_threshold": 0.01},
+    )
+
+    # Failure: cube_0 was stacked at some point this episode AND is now no
+    # longer stacked. Mirrors the `stack_broke_penalty` trigger so the −500
+    # penalty fires the same step the episode terminates.
+    stack_broken = DoneTerm(
+        func=mdp.cube_0_stack_broken,
         params={"xy_threshold": 0.02, "z_threshold": 0.01},
     )
 
@@ -384,10 +366,10 @@ class StackCubeEnvCfg(ManagerBasedRLEnvCfg):
 
     def __post_init__(self):
         """LiftCube timing: 100 Hz physics / decimation 2 / 5 s episode = 250 control steps."""
-        self.decimation = 2
-        self.episode_length_s = 5.0
+        self.decimation = 6
+        self.episode_length_s = 10.0
         # Simulation — LiftCube canonical
-        self.sim.dt = 0.01  # 100 Hz
+        self.sim.dt = 1 / 120  # 100 Hz
         self.sim.render_interval = self.decimation
         # Physics knobs — LiftCube canonical
         self.sim.physx.bounce_threshold_velocity = 0.2
