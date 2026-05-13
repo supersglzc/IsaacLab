@@ -130,17 +130,18 @@ class StackCubeSceneCfg(InteractiveSceneCfg):
 class ActionsCfg:
     """Action specs — filled by per-robot subclass.
 
-    * arm_action — `mdp.JointPositionActionCfg` (7-D stock joint-position
-      action over the Franka arm joints `panda_joint.*`). Cfg in
-      `config/franka/joint_pos_env_cfg.py` uses `scale=0.5`,
-      `use_default_offset=True` (target = 0.5 * action + default_joint_pos).
+    * arm_action — `mdp.EMACumulativeDeltaPositionActionCfg` (3-D position-only
+      EMA EE-delta action; xyz only, EE quaternion locked at the post-reset
+      value). Cfg in `config/franka/joint_pos_env_cfg.py` uses
+      `scale=(0.02, 0.02, 0.02)`, `alpha=0.5`, body `panda_hand` with offset
+      [0, 0, 0.1034] m, IK controller in pose / abs / dls mode.
     * gripper_action — `mdp.BinaryJointPositionActionCfg` over the 2 finger
       joints (open=0.04 m / close=0.0 m).
 
-    Total action dim = 7 (arm joints) + 1 (binary gripper) = 8.
+    Total action dim = 3 (xyz EE-delta) + 1 (binary gripper) = 4.
     """
 
-    arm_action: mdp.JointPositionActionCfg = MISSING
+    arm_action: mdp.EMACumulativeDeltaPositionActionCfg = MISSING
     gripper_action: mdp.BinaryJointPositionActionCfg = MISSING
 
 
@@ -169,8 +170,8 @@ class ObservationsCfg:
         joint_pos                  (9,)  — mdp.joint_pos_rel (all 9 robot joints)
         grasping_cube_position     (3,)  — mdp.grasping_cube_position_in_robot_root_frame
         grasping_target_position   (3,)  — mdp.grasping_target_position_in_robot_root_frame
-        actions                    (8,)  — mdp.last_action
-        Total = 9+3+3+8 = 23.
+        actions                    (4,)  — mdp.last_action (3 xyz + 1 gripper)
+        Total = 9+3+3+4 = 19.
 
     enable_corruption=True (LiftCube design preserved).
     """
@@ -180,7 +181,7 @@ class ObservationsCfg:
         # Concatenation order: joint_pos -> grasping_cube_position ->
         # grasping_target_position -> actions. `joint_pos_rel` defaults to
         # ALL 9 robot joints (7 arm + 2 fingers; LiftCube canonical), so the
-        # actual obs width is 9+3+3+8 = 23. smoke_s5 pins the actual layout.
+        # actual obs width is 9+3+3+4 = 19. smoke_s5 pins the actual layout.
         joint_pos = ObsTerm(func=mdp.joint_pos_rel)
         grasping_cube_position = ObsTerm(func=mdp.grasping_cube_position_in_robot_root_frame)
         grasping_target_position = ObsTerm(func=mdp.grasping_target_position_in_robot_root_frame)
@@ -213,7 +214,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.45, 0.45), "y": (-0.25, -0.15), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.4, 0.5), "y": (-0.25, -0.15), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_0"),
         },
@@ -222,7 +223,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.45, 0.45), "y": (-0.05, 0.05), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.4, 0.5), "y": (-0.05, 0.05), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_1"),
         },
@@ -231,7 +232,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.45, 0.45), "y": (0.15, 0.25), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.4, 0.5), "y": (0.15, 0.25), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_2"),
         },
@@ -267,7 +268,7 @@ class RewardsCfg:
 
     reach = RewTerm(
         func=mdp.grasping_cube_ee_distance,
-        params={"std": 0.1},
+        params={"std": 0.2, "std_state_b": 0.15},
         weight=0.02,
     )
     lift = RewTerm(
@@ -284,13 +285,13 @@ class RewardsCfg:
     success_bonus = RewTerm(
         func=mdp.cube_0_stacked_bonus_once_per_episode,
         params={"xy_threshold": 0.02, "z_threshold": 0.01},
-        weight=500.0,
+        weight=200.0,
     )
 
     stack_broke_penalty = RewTerm(
         func=mdp.cube_0_stack_broken_penalty_once_per_episode,
         params={"xy_threshold": 0.02, "z_threshold": 0.01},
-        weight=-500.0,
+        weight=-200.0,
     )
 
     tower_bonus = RewTerm(
@@ -299,10 +300,10 @@ class RewardsCfg:
         weight=1000.0,
     )
 
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-2e-6)
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=0.0)
     joint_vel = RewTerm(
         func=mdp.joint_vel_l2,
-        weight=-2e-6,
+        weight=0.0,
         params={"asset_cfg": SceneEntityCfg("robot")},
     )
 

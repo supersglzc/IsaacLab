@@ -91,12 +91,17 @@ def _cube_0_on_cube_1_predicate(
 def grasping_cube_ee_distance(
     env: "ManagerBasedRLEnv",
     std: float = 0.1,
+    std_state_b: float | None = None,
     ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
 ) -> torch.Tensor:
     """`1 - tanh(||grasping_cube - ee|| / std)`.
 
+    Per-state std: `std` applies when predicate is False (state A — chasing
+    cube_0); `std_state_b` (defaults to `std`) applies when predicate is True
+    (state B — chasing cube_2). A sharper state-B std rewards precision near
+    cube_2; a wider state-A std attracts the EE from far away.
+
     grasping_cube = cube_0 when `_cube_0_on_cube_1_predicate` False, cube_2 when True.
-    Mux matches the §5 obs mux exactly.
     """
     cube_0 = env.scene["cube_0"]
     cube_2 = env.scene["cube_2"]
@@ -107,9 +112,11 @@ def grasping_cube_ee_distance(
     grasping_pos = torch.where(on_stack.unsqueeze(-1), pos_2, pos_0)
     ee_w = ee_frame.data.target_pos_w[..., 0, :]
     d = torch.norm(grasping_pos - ee_w, dim=1)
-    # Per-step state-B compensation: +1.0 (the per-step max of the state-A
-    # output) so the policy never loses dense reward by completing stage 1.
-    return (1.0 - torch.tanh(d / std)) + on_stack.float()
+    std_b = std if std_state_b is None else float(std_state_b)
+    effective_std = torch.where(on_stack, torch.full_like(d, std_b), torch.full_like(d, std))
+    base = 1.0 - torch.tanh(d / effective_std)
+    # State B: scale base by 100× and add the +1.0 compensation; state A unchanged.
+    return torch.where(on_stack, 100.0 * base + 1.0, base)
 
 
 def grasping_cube_is_lifted(
@@ -127,8 +134,8 @@ def grasping_cube_is_lifted(
     z_2 = cube_2.data.root_pos_w[:, 2]
     z = torch.where(on_stack, z_2, z_0)
     lifted = torch.where(z > minimal_height, 1.0, 0.0)
-    # Per-step state-B compensation: +1.0 (= state-A max) preserves dense reward across the flip.
-    return lifted + on_stack.float()
+    # State B: scale base by 10× and add the +1.0 compensation; state A unchanged.
+    return torch.where(on_stack, 100.0 * lifted + 1.0, lifted)
 
 
 def grasping_cube_goal_distance(
@@ -154,8 +161,9 @@ def grasping_cube_goal_distance(
     target_pos[:, 2] = target_pos[:, 2] + CUBE_SIZE
     d = torch.norm(grasping_pos - target_pos, dim=1)
     lifted = (grasping_pos[:, 2] > minimal_height).float()
-    # Per-step state-B compensation: +1.0 (= state-A max) preserves dense reward across the flip.
-    return lifted * (1.0 - torch.tanh(d / std)) + on_stack.float()
+    base = lifted * (1.0 - torch.tanh(d / std))
+    # State B: scale base by 10× and add the +1.0 compensation; state A unchanged.
+    return torch.where(on_stack, 100.0 * base + 1.0, base)
 
 
 # iter 33 — module-level per-env latch buffers (keyed by id(env), key_str).

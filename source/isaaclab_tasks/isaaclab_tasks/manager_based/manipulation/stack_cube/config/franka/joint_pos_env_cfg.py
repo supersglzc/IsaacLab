@@ -5,17 +5,22 @@
 
 """Franka-specific cfg for the StackCube task.
 
-Edit_mode_011: revert §2 action to LiftCube's stock
-`mdp.JointPositionActionCfg` (scale=0.5, use_default_offset=True). The custom
-EMA cumulative-delta wrapper from edit_mode_010 is removed; `mdp/actions.py`
-and `mdp/actions_cfg.py` are docstring-only stubs again. Reward design
-(LiftCube wholesale-copy, 7 terms) from edit_mode_008 retained.
+Edit_mode_014 (§2): swap stock `mdp.JointPositionActionCfg` for a custom
+position-only EMA EE-delta term (`EMACumulativeDeltaPositionActionCfg`).
+The policy outputs a 3-D position delta `(dx, dy, dz)`; the EE quaternion
+is FIXED at the post-reset value (no rotation channels). EMA-smooths
+against the previously-applied position target then forwards an absolute
+7-D pose command to the IK controller.
 
-ACTION: `mdp.JointPositionActionCfg` over the 7 Franka arm joints
-(`panda_joint.*`). Per-step: `target = scale * action + offset`, where
-`offset = default_joint_pos` because `use_default_offset=True`. Coupled with
-a 1-D `mdp.BinaryJointPositionActionCfg` (open=0.04 / close=0.0). Total
-action dim = 8.
+ACTION: `mdp.EMACumulativeDeltaPositionActionCfg` over the 7 Franka arm
+joints (`panda_joint.*`) targeting body `panda_hand` with a 0.1034 m z
+offset (matching the `ee_frame` convention). Per-step:
+    delta_t  = delta_{t-1} + scale * a_t                       (3-D)
+    abs_pos  = init_ee_pos + delta_t                            (3-D)
+    target   = alpha * abs_pos + (1 - alpha) * prev_applied_pos
+    cmd_quat = init_ee_quat                                    (locked)
+Coupled with a 1-D `mdp.BinaryJointPositionActionCfg` (open=0.04 /
+close=0.0). Total action dim = 4 (3 xyz + 1 gripper).
 
 Robot: `FRANKA_PANDA_HIGH_PD_CFG` retained for stable joint-position tracking
 (LiftCube uses the low-PD variant; we keep HIGH_PD per the user instruction).
@@ -38,6 +43,8 @@ import math
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, RigidObjectCfg
+from isaaclab.controllers import DifferentialIKControllerCfg
+from isaaclab.envs.mdp.actions import DifferentialInverseKinematicsActionCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg, OffsetCfg
 from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import UsdFileCfg
@@ -79,7 +86,7 @@ FRANKA_INIT_JOINT_POS = {
 
 @configclass
 class FrankaStackCubeEnvCfg(StackCubeEnvCfg):
-    """Franka + JointPositionAction (LiftCube layout) + BinaryGripper + two DexCubes."""
+    """Franka + EMACumulativeDeltaPositionAction (xyz only, fixed RPY) + BinaryGripper + three DexCubes."""
 
     def __post_init__(self):
         # Parent post-init first (sets decimation / episode_length_s / physics).
@@ -95,15 +102,24 @@ class FrankaStackCubeEnvCfg(StackCubeEnvCfg):
         # registered on panda_leftfinger / panda_rightfinger can read forces.
         self.scene.robot.spawn.activate_contact_sensors = True
 
-        # Action — 7-D stock JointPositionAction over the Franka arm.
-        # target = scale * action + offset, with offset = default_joint_pos
-        # (since use_default_offset=True). LiftCube convention: scale=0.5.
-        # Coupled with a 1-D binary gripper for a total action dim of 8.
-        self.actions.arm_action = mdp.JointPositionActionCfg(
+        # Action — 3-D position-only EMA EE-delta with locked RPY. The EE
+        # quaternion is fixed at the post-reset value; the policy only moves
+        # the EE in xyz. The IK controller (pose / abs / dls) receives an
+        # absolute 7-D pose target each step. body_name="panda_hand" with a
+        # 0.1034 m z offset matches the `ee_frame` FrameTransformer.
+        # Coupled with a 1-D binary gripper for a total action dim of 4.
+        self.actions.arm_action = mdp.EMACumulativeDeltaPositionActionCfg(
             asset_name="robot",
             joint_names=["panda_joint.*"],
-            scale=0.5,
-            use_default_offset=True,
+            body_name="panda_hand",
+            body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=(0.0, 0.0, 0.1034)),
+            controller=DifferentialIKControllerCfg(
+                command_type="pose",
+                use_relative_mode=False,
+                ik_method="dls",
+            ),
+            scale=(0.02, 0.02, 0.02),
+            alpha=0.5,
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
