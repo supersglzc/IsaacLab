@@ -303,14 +303,7 @@ class RewardsCfg:
     tower_bonus = RewTerm(
         func=mdp.three_tier_tower_bonus_once_per_episode,
         params={"xy_threshold": 0.02, "z_threshold": 0.01},
-        weight=1000.0,
-    )
-
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=0.0)
-    joint_vel = RewTerm(
-        func=mdp.joint_vel_l2,
-        weight=0.0,
-        params={"asset_cfg": SceneEntityCfg("robot")},
+        weight=2000.0,
     )
 
 

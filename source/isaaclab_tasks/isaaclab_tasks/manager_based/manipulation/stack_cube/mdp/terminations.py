@@ -88,19 +88,31 @@ def _gripper_far_from_cube_0(
     return distance > min_distance
 
 
+def _no_contact_between_cube_and_gripper_or_ee(
+    env: "ManagerBasedRLEnv",
+    cube_idx: int,
+    eps: float = 1e-3,
+) -> torch.Tensor:
+    """True per env if neither fingertip NOR the panda_hand body has contact
+    force vs `cube_<cube_idx>`. `cube_idx` ∈ {0, 1, 2} matches the filter list
+    declared on each contact sensor in StackCubeSceneCfg.
+    """
+    left = env.scene["finger_left_contact"]
+    right = env.scene["finger_right_contact"]
+    hand = env.scene["hand_contact"]
+    left_f = torch.norm(left.data.force_matrix_w[:, 0, cube_idx, :], dim=-1)
+    right_f = torch.norm(right.data.force_matrix_w[:, 0, cube_idx, :], dim=-1)
+    hand_f = torch.norm(hand.data.force_matrix_w[:, 0, cube_idx, :], dim=-1)
+    in_contact = (left_f > eps) | (right_f > eps) | (hand_f > eps)
+    return ~in_contact
+
+
 def _no_contact_between_cube_0_and_gripper_or_ee(
     env: "ManagerBasedRLEnv",
     eps: float = 1e-3,
 ) -> torch.Tensor:
-    """True per env if neither fingertip NOR the panda_hand body has contact force vs cube_0."""
-    left = env.scene["finger_left_contact"]
-    right = env.scene["finger_right_contact"]
-    hand = env.scene["hand_contact"]
-    left_f0 = torch.norm(left.data.force_matrix_w[:, 0, 0, :], dim=-1)
-    right_f0 = torch.norm(right.data.force_matrix_w[:, 0, 0, :], dim=-1)
-    hand_f0 = torch.norm(hand.data.force_matrix_w[:, 0, 0, :], dim=-1)
-    in_contact = (left_f0 > eps) | (right_f0 > eps) | (hand_f0 > eps)
-    return ~in_contact
+    """Back-compat shim — forwards to the generalized helper with cube_idx=0."""
+    return _no_contact_between_cube_and_gripper_or_ee(env, cube_idx=0, eps=eps)
 
 
 def three_tier_tower_stacked(
@@ -230,11 +242,12 @@ def three_tier_tower_broken(
     pos_0 = cube_0.data.root_pos_w[:, :3]
     pos_1 = cube_1.data.root_pos_w[:, :3]
     pos_2 = cube_2.data.root_pos_w[:, :3]
-    # Upper pair: cube_0 on cube_1
+    # Broken predicate uses GEOMETRIC ONLY on both pairs (mirrors
+    # `cube_0_stack_broken`): once the latch is set, the episode ends only when
+    # the cubes have physically come apart, regardless of gripper contact.
     xy_01 = torch.norm(pos_0[:, :2] - pos_1[:, :2], dim=-1)
     z_01 = pos_0[:, 2] - pos_1[:, 2]
     upper = (xy_01 < xy_threshold) & (torch.abs(z_01 - CUBE_SIZE) < z_threshold)
-    # Top pair: cube_2 on cube_0
     xy_20 = torch.norm(pos_2[:, :2] - pos_0[:, :2], dim=-1)
     z_20 = pos_2[:, 2] - pos_0[:, 2]
     top = (xy_20 < xy_threshold) & (torch.abs(z_20 - CUBE_SIZE) < z_threshold)

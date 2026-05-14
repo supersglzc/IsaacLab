@@ -119,7 +119,7 @@ class FrankaStackCubeEnvCfg(StackCubeEnvCfg):
                 ik_method="dls",
             ),
             scale=(0.02, 0.02, 0.02),
-            alpha=0.5,
+            alpha=0.2,
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",

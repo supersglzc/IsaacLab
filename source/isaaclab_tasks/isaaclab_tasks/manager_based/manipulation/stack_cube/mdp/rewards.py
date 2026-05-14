@@ -163,7 +163,7 @@ def grasping_cube_goal_distance(
     lifted = (grasping_pos[:, 2] > minimal_height).float()
     base = lifted * (1.0 - torch.tanh(d / std))
     # State B: scale base by 10× and add the +1.0 compensation; state A unchanged.
-    return torch.where(on_stack, 20.0 * base + 1.0, base)
+    return torch.where(on_stack, 40.0 * base + 1.0, base)
 
 
 # iter 33 — module-level per-env latch buffers (keyed by id(env), key_str).
@@ -362,17 +362,19 @@ def three_tier_tower_bonus_once_per_episode(
     xy_threshold: float = 0.02,
     z_threshold: float = 0.01,
 ) -> torch.Tensor:
-    """+1.0 the FIRST step the full 3-tier tower is geometrically assembled, else 0.0.
+    """+1.0 the FIRST step the full 3-tier tower is assembled, else 0.0.
 
-    Tower pairing matches `mdp.terminations.three_tier_tower_stacked`:
-        cube_0 on cube_1 (geometric: |Δxy|<xy_thr AND |Δz−CUBE_SIZE|<z_thr)
-        AND cube_2 on cube_0 (geometric, same thresholds)
+    Tower pairing now mirrors the 2-cube success contract
+    (`cube_0_stacked_bonus_once_per_episode`):
+        cube_0 on cube_1:  geometric (|Δxy|<xy_thr AND |Δz−CUBE_SIZE|<z_thr)
+                           AND no contact between cube_0 and gripper/ee
+        cube_2 on cube_0:  geometric (same thresholds)
+                           AND no contact between cube_2 and gripper/ee
 
-    Geometric-only (no gripper/contact gates) — once the cubes are stacked the
-    policy gets the bonus regardless of where the gripper is. Per-env latch
-    resets at `env.episode_length_buf <= 1` and locks once fired so the bonus
-    counts at most once per episode.
+    Per-env latch resets at `env.episode_length_buf <= 1` and locks once fired
+    so the bonus counts at most once per episode.
     """
+    from .terminations import _no_contact_between_cube_and_gripper_or_ee
     latch = _get_latch_buffer(env, "three_tier_tower_once")
     just_reset = env.episode_length_buf <= 1
     latch = torch.where(just_reset, torch.zeros_like(latch), latch)
@@ -383,14 +385,16 @@ def three_tier_tower_bonus_once_per_episode(
     pos_0 = cube_0.data.root_pos_w[:, :3]
     pos_1 = cube_1.data.root_pos_w[:, :3]
     pos_2 = cube_2.data.root_pos_w[:, :3]
-    # Upper pair: cube_0 on cube_1
+    # Upper pair: cube_0 on cube_1 — geometric AND no contact between cube_0 and gripper/ee.
     xy_01 = torch.norm(pos_0[:, :2] - pos_1[:, :2], dim=-1)
     z_01 = pos_0[:, 2] - pos_1[:, 2]
-    upper = (xy_01 < xy_threshold) & (torch.abs(z_01 - CUBE_SIZE) < z_threshold)
-    # Top pair: cube_2 on cube_0
+    upper_geom = (xy_01 < xy_threshold) & (torch.abs(z_01 - CUBE_SIZE) < z_threshold)
+    upper = upper_geom & _no_contact_between_cube_and_gripper_or_ee(env, cube_idx=0)
+    # Top pair: cube_2 on cube_0 — geometric AND no contact between cube_2 and gripper/ee.
     xy_20 = torch.norm(pos_2[:, :2] - pos_0[:, :2], dim=-1)
     z_20 = pos_2[:, 2] - pos_0[:, 2]
-    top = (xy_20 < xy_threshold) & (torch.abs(z_20 - CUBE_SIZE) < z_threshold)
+    top_geom = (xy_20 < xy_threshold) & (torch.abs(z_20 - CUBE_SIZE) < z_threshold)
+    top = top_geom & _no_contact_between_cube_and_gripper_or_ee(env, cube_idx=2)
     tower_built = upper & top
 
     fire = tower_built & (~latch)
