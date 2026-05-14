@@ -65,7 +65,7 @@ class StackCubeSceneCfg(InteractiveSceneCfg):
     # downstream code that reads these sensors continues to work; the new
     # reward set does not use them (LiftCube doesn't read contact forces).
     finger_left_contact = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/panda_leftfinger",
+        prim_path="{ENV_REGEX_NS}/Robot/fr3_leftfinger",
         update_period=0.0,
         history_length=1,
         debug_vis=False,
@@ -76,7 +76,7 @@ class StackCubeSceneCfg(InteractiveSceneCfg):
         ],
     )
     finger_right_contact = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/panda_rightfinger",
+        prim_path="{ENV_REGEX_NS}/Robot/fr3_rightfinger",
         update_period=0.0,
         history_length=1,
         debug_vis=False,
@@ -89,7 +89,7 @@ class StackCubeSceneCfg(InteractiveSceneCfg):
     # Hand-body contact sensor (iter 8): used to assert cube_0 has NO contact
     # with the EE/wrist body in addition to the fingertips before success fires.
     hand_contact = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/panda_hand",
+        prim_path="{ENV_REGEX_NS}/Robot/fr3_hand",
         update_period=0.0,
         history_length=1,
         debug_vis=False,
@@ -100,17 +100,20 @@ class StackCubeSceneCfg(InteractiveSceneCfg):
         ],
     )
 
-    # Table — same SeattleLabTable used by Reach / Lift / Push.
+    # Table — bidex StackCube convention (lab_table USD, instanceable + rotated +
+    # colored, kinematic). pos=(0,0,0); the table surface sits at z≈0.
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Table",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.5, 0.0, 0.0], rot=[0.707, 0.0, 0.0, 0.707]),
-        spawn=UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/SeattleLabTable/table_instanceable.usd"),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.0, 0.0, 0.0]),
+        spawn=UsdFileCfg(
+            usd_path="/home/steven/code/bidex/assets/Background/table/lab_table_instanceable_colored_rotated.usd",
+        ),
     )
 
-    # Ground plane.
+    # Ground plane — bidex convention: below the table by 0.82 m.
     plane = AssetBaseCfg(
         prim_path="/World/GroundPlane",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.0, 0.0, -1.05]),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=[0.0, 0.0, -0.82]),
         spawn=GroundPlaneCfg(),
     )
 
@@ -215,7 +218,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.4, 0.5), "y": (0.15, 0.25), "z": (0.0, 0.0)},
+            "pose_range": {"x": (-0.1, -0.1), "y": (0.0, 0.0), "z": (0.07, 0.07)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_0"),
         },
@@ -224,7 +227,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.4, 0.5), "y": (-0.05, 0.05), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_1"),
         },
@@ -233,7 +236,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.4, 0.5), "y": (-0.25, -0.15), "z": (0.0, 0.0)},
+            "pose_range": {"x": (-0.1, -0.1), "y": (0.0, 0.0), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_2"),
         },
@@ -375,7 +378,7 @@ class StackCubeEnvCfg(ManagerBasedRLEnvCfg):
     def __post_init__(self):
         """LiftCube timing: 100 Hz physics / decimation 2 / 5 s episode = 250 control steps."""
         self.decimation = 6
-        self.episode_length_s = 10.0
+        self.episode_length_s = 9.0
         # Simulation — LiftCube canonical
         self.sim.dt = 1 / 120  # 100 Hz
         self.sim.render_interval = self.decimation

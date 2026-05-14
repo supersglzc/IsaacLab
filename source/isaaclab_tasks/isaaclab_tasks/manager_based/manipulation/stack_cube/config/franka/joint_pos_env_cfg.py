@@ -40,8 +40,10 @@ End-effector sensor: `FrameTransformerCfg` rooted at `panda_link0` and tracking
 """
 
 import math
+from pathlib import Path
 
 import isaaclab.sim as sim_utils
+from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, RigidObjectCfg
 from isaaclab.controllers import DifferentialIKControllerCfg
 from isaaclab.envs.mdp.actions import DifferentialInverseKinematicsActionCfg
@@ -58,7 +60,6 @@ from isaaclab_tasks.manager_based.manipulation.stack_cube.stack_cube_env_cfg imp
 # Pre-defined configs
 ##
 from isaaclab.markers.config import FRAME_MARKER_CFG  # isort: skip
-from isaaclab_assets.robots.franka import FRANKA_PANDA_HIGH_PD_CFG  # isort: skip
 
 
 # Cube geometry — DexCube USD scaled to a 4.3 cm edge length, 55 g mass.
@@ -68,19 +69,66 @@ CUBE_USD_SCALE = 0.86    # 0.043 / 0.05 = 0.86
 CUBE_MASS = 0.055        # kg
 CUBE_INIT_Z = CUBE_SIZE / 2.0  # center half a cube above table top → base on table
 
+# Path to the FR3 + Franka-hand USD converted from
+# `<agentic>/franka_description/urdfs/fr3_franka_hand.urdf`.
+_FR3_USD_PATH = "/home/steven/code/agentic/IsaacLab/nautilus/assets/fr3/fr3_franka_hand.usd"
 
-# Canonical Franka top-down-grasping init joint pose. The shipped
-# FRANKA_PANDA_HIGH_PD_CFG default does NOT point the EE exactly straight down.
-# These values DO — verified by smoke_s3 (rotated_local_z[..., 2] ≈ -1).
+# FR3 + Franka-hand robot config — built fresh (the shipped FRANKA_PANDA_*
+# cfgs assume the Isaac Sim Panda USD with `panda_*` joint/link names; the
+# FR3 URDF prefixes everything with `fr3_`). Tuned with HIGH_PD stiffness so
+# the joint-position tracker is stable enough for absolute-IK control.
+FR3_FRANKA_HAND_CFG = ArticulationCfg(
+    spawn=sim_utils.UsdFileCfg(
+        usd_path=_FR3_USD_PATH,
+        activate_contact_sensors=True,
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            disable_gravity=True,
+            max_depenetration_velocity=5.0,
+        ),
+        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+            enabled_self_collisions=True,
+            solver_position_iteration_count=8,
+            solver_velocity_iteration_count=0,
+        ),
+    ),
+    init_state=ArticulationCfg.InitialStateCfg(),  # filled in __post_init__
+    actuators={
+        "fr3_shoulder": ImplicitActuatorCfg(
+            joint_names_expr=["fr3_joint[1-4]"],
+            effort_limit_sim=87.0,
+            stiffness=400.0,
+            damping=80.0,
+        ),
+        "fr3_forearm": ImplicitActuatorCfg(
+            joint_names_expr=["fr3_joint[5-7]"],
+            effort_limit_sim=12.0,
+            stiffness=400.0,
+            damping=80.0,
+        ),
+        "fr3_hand": ImplicitActuatorCfg(
+            joint_names_expr=["fr3_finger_joint.*"],
+            effort_limit_sim=200.0,
+            stiffness=2e3,
+            damping=1e2,
+        ),
+    },
+    soft_joint_pos_limit_factor=1.0,
+)
+
+
+# Init joint pose mirrors bidex `bidex/env/tasks/StackCube/env_cfg.py`:
+# panda_joint1 rotated 45° so the EE arcs over the table center given the
+# robot's base position `pos=(-0.274, -0.49, 0.01)`. Joints 2–7 unchanged
+# numerically from the prior Triton init; only renamed `panda_*` → `fr3_*`.
 FRANKA_INIT_JOINT_POS = {
-    "panda_joint1": 0.0,
-    "panda_joint2": -math.pi / 4,
-    "panda_joint3": 0.0,
-    "panda_joint4": -3 * math.pi / 4 - 0.3,   # bend elbow more to lower EE
-    "panda_joint5": 0.0,
-    "panda_joint6": math.pi / 2 + 0.3,        # counter-rotate wrist by same Δ to keep EE pointing down
-    "panda_joint7": 3 * math.pi / 4,
-    "panda_finger_joint.*": 0.04,
+    "fr3_joint1": -0.785,
+    "fr3_joint2": -0.785,
+    "fr3_joint3": 0.0,
+    "fr3_joint4": -2.655,
+    "fr3_joint5": 0.0,
+    "fr3_joint6": 1.87,
+    "fr3_joint7": 0.0,
+    "fr3_finger_joint.*": 0.04,
 }
 
 
@@ -92,26 +140,29 @@ class FrankaStackCubeEnvCfg(StackCubeEnvCfg):
         # Parent post-init first (sets decimation / episode_length_s / physics).
         super().__post_init__()
 
-        # Robot — HIGH_PD variant for stable joint-position tracking. The init
-        # joint pose puts the EE pointing straight down at reset.
-        self.scene.robot = FRANKA_PANDA_HIGH_PD_CFG.replace(
+        # Robot — FR3 + Franka-hand from the agentic `franka_description` URDF
+        # (converted to USD via `scripts/tools/convert_urdf.py`). Joint/body
+        # names are prefixed `fr3_*` (vs the prior Panda `panda_*`).
+        # Base pos and joint1 angle mirror bidex StackCube so the EE arcs over
+        # the table center.
+        self.scene.robot = FR3_FRANKA_HAND_CFG.replace(
             prim_path="{ENV_REGEX_NS}/Robot",
-            init_state=ArticulationCfg.InitialStateCfg(joint_pos=FRANKA_INIT_JOINT_POS),
+            init_state=ArticulationCfg.InitialStateCfg(
+                joint_pos=FRANKA_INIT_JOINT_POS,
+                pos=(-0.274, 0.49, 0.01),
+            ),
         )
-        # Enable contact-reporter API on the Franka USD so the ContactSensors
-        # registered on panda_leftfinger / panda_rightfinger can read forces.
-        self.scene.robot.spawn.activate_contact_sensors = True
 
         # Action — 3-D position-only EMA EE-delta with locked RPY. The EE
         # quaternion is fixed at the post-reset value; the policy only moves
         # the EE in xyz. The IK controller (pose / abs / dls) receives an
-        # absolute 7-D pose target each step. body_name="panda_hand" with a
+        # absolute 7-D pose target each step. body_name="fr3_hand" with a
         # 0.1034 m z offset matches the `ee_frame` FrameTransformer.
         # Coupled with a 1-D binary gripper for a total action dim of 4.
         self.actions.arm_action = mdp.EMACumulativeDeltaPositionActionCfg(
             asset_name="robot",
-            joint_names=["panda_joint.*"],
-            body_name="panda_hand",
+            joint_names=["fr3_joint.*"],
+            body_name="fr3_hand",
             body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=(0.0, 0.0, 0.1034)),
             controller=DifferentialIKControllerCfg(
                 command_type="pose",
@@ -123,9 +174,9 @@ class FrankaStackCubeEnvCfg(StackCubeEnvCfg):
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
-            joint_names=["panda_finger.*"],
-            open_command_expr={"panda_finger_.*": 0.04},
-            close_command_expr={"panda_finger_.*": 0.0},
+            joint_names=["fr3_finger.*"],
+            open_command_expr={"fr3_finger_.*": 0.04},
+            close_command_expr={"fr3_finger_.*": 0.0},
         )
 
         # End-effector frame sensor — LiftCube convention. Used by
@@ -134,14 +185,14 @@ class FrankaStackCubeEnvCfg(StackCubeEnvCfg):
         marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
         marker_cfg.prim_path = "/Visuals/FrameTransformer"
         self.scene.ee_frame = FrameTransformerCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/panda_link0",
-            debug_vis=False,
+            prim_path="{ENV_REGEX_NS}/Robot/fr3_link0",
+            debug_vis=True,
             visualizer_cfg=marker_cfg,
             target_frames=[
                 FrameTransformerCfg.FrameCfg(
-                    prim_path="{ENV_REGEX_NS}/Robot/panda_hand",
+                    prim_path="{ENV_REGEX_NS}/Robot/fr3_hand",
                     name="end_effector",
-                    offset=OffsetCfg(pos=[0.0, 0.0, 0.1034]),
+                    offset=OffsetCfg(pos=[0.0, 0.0, 0.2]),
                 ),
             ],
         )
