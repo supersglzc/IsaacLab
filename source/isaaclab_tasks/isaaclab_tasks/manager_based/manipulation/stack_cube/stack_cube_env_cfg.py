@@ -182,13 +182,16 @@ class ObservationsCfg:
     @configclass
     class PolicyCfg(ObsGroup):
         # Concatenation order: ee_pose -> grasping_cube_position ->
-        # grasping_target_position -> actions. ee_pose is 7-D (xyz + quat in
-        # robot root frame) — replaces joint_pos (9-D) since the action is
-        # task-space EE-delta and the policy benefits more from direct EE state.
-        # Total obs width = 7+3+3+4 = 17.
+        # grasping_target_position -> gripper_pos -> actions.
+        # ee_pose (7) + grasping_cube_position (3) + grasping_target_position
+        # (3) + gripper_pos (2) + actions (4) = 19.
         ee_pose = ObsTerm(func=mdp.ee_pose_in_robot_root_frame)
         grasping_cube_position = ObsTerm(func=mdp.grasping_cube_position_in_robot_root_frame)
         grasping_target_position = ObsTerm(func=mdp.grasping_target_position_in_robot_root_frame)
+        gripper_pos = ObsTerm(
+            func=mdp.joint_pos,
+            params={"asset_cfg": SceneEntityCfg("robot", joint_names=["fr3_finger.*"])},
+        )
         actions = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self):
@@ -218,7 +221,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.1, -0.1), "y": (0.0, 0.0), "z": (0.07, 0.07)},
+            "pose_range": {"x": (0.0, 0.2), "y": (0.2, 0.4), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_0"),
         },
@@ -227,7 +230,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.0, 0.2), "y": (0.0, 0.2), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_1"),
         },
@@ -236,7 +239,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.1, -0.1), "y": (0.0, 0.0), "z": (0.0, 0.0)},
+            "pose_range": {"x": (-0.20, 0.0), "y": (0.0, 0.1), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_2"),
         },
@@ -277,7 +280,7 @@ class RewardsCfg:
     # Both call the same grasping-cube mux function (cube_0 in A / cube_2 in B).
     reach = RewTerm(
         func=mdp.grasping_cube_ee_distance,
-        params={"std": 0.2},
+        params={"std": 0.15},
         weight=0.02,
     )
     lift = RewTerm(
@@ -307,6 +310,17 @@ class RewardsCfg:
         func=mdp.three_tier_tower_bonus_once_per_episode,
         params={"xy_threshold": 0.02, "z_threshold": 0.01},
         weight=2000.0,
+    )
+
+    # Per-step bonus when the grasping cube hovers over the stack target
+    # (xy < 2 cm, |z| < 3 cm) AND the policy outputs an "open gripper"
+    # action this step. Modest weight: the success_bonus (200) and
+    # tower_bonus (2000) still dominate, but this nudges the policy to
+    # release at the right moment instead of squeezing forever.
+    release_bonus = RewTerm(
+        func=mdp.release_bonus_in_drop_zone,
+        params={"xy_threshold": 0.02, "z_threshold": 0.03},
+        weight=0.0,
     )
 
 

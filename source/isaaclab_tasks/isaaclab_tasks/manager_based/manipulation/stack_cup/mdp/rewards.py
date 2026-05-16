@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Reward functions for the stack_cube task — 3-tier tower extension (iter 23).
+"""Reward functions for the stack_cup task — 3-tier tower extension (iter 23).
 
 Two parallel LiftCube-style stages (cube_1 → cube_2 first, then cube_0 → cube_1)
 plus a sparse full-tower bonus that aligns with the success termination:
@@ -54,9 +54,12 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-# Cube edge length — the expected z-gap between cube_0 (top) and cube_1 (bottom)
-# when stacked. Mirrors the constant in `mdp/terminations.py`.
-CUBE_SIZE = 0.043
+# EXPECTED stacked z-gap between consecutive layers. For cup geometry this is
+# the EMPIRICAL nested-stack spacing (≠ cup geometric height), measured at
+# 0.077 m for the 9 cm scaled cup. Mirrors the constant in
+# `mdp/terminations.py` and `mdp/observations.py` (and `CUBE_SIZE` in
+# `config/franka/joint_pos_env_cfg.py`).
+CUBE_SIZE = 0.077
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +119,7 @@ def grasping_cube_ee_distance(
     effective_std = torch.where(on_stack, torch.full_like(d, std_b), torch.full_like(d, std))
     base = 1.0 - torch.tanh(d / effective_std)
     # State B: scale base by 100× and add the +1.0 compensation; state A unchanged.
-    return torch.where(on_stack, 30.0 * base + 1.0, base)
+    return torch.where(on_stack, 20.0 * base + 1.0, base)
 
 
 def grasping_cube_is_lifted(
@@ -135,7 +138,7 @@ def grasping_cube_is_lifted(
     z = torch.where(on_stack, z_2, z_0)
     lifted = torch.where(z > minimal_height, 1.0, 0.0)
     # State B: scale base by 10× and add the +1.0 compensation; state A unchanged.
-    return torch.where(on_stack, 20.0 * lifted + 1.0, lifted)
+    return torch.where(on_stack, 10.0 * lifted + 1.0, lifted)
 
 
 def grasping_cube_goal_distance(
@@ -163,7 +166,7 @@ def grasping_cube_goal_distance(
     lifted = (grasping_pos[:, 2] > minimal_height).float()
     base = lifted * (1.0 - torch.tanh(d / std))
     # State B: scale base by 10× and add the +1.0 compensation; state A unchanged.
-    return torch.where(on_stack, 50.0 * base + 1.0, base)
+    return torch.where(on_stack, 40.0 * base + 1.0, base)
 
 
 # iter 33 — module-level per-env latch buffers (keyed by id(env), key_str).
@@ -1095,56 +1098,3 @@ def fcs_stack_reward(
     d = torch.norm(cube_a_pos - hand_pos, dim=-1)
     gripper_away = d > 0.04
     return (aligned_xy & on_top & gripper_away).float()
-
-
-# --------------------------------------------------------------------------- #
-# Release-in-drop-zone bonus                                                  #
-# --------------------------------------------------------------------------- #
-#
-# Per-step bonus when the *grasping cube* (same mux used by §5 obs and §6
-# align reward) is within `xy_threshold` and `z_threshold` of the stack target
-# AND the policy outputs an "open gripper" action this step. Encourages the
-# policy to release the cube once it's hovering over the goal position.
-#
-# Gripper action convention (`BinaryJointPositionAction` in IsaacLab):
-#   `action[:, -1] < 0`  → close
-#   `action[:, -1] >= 0` → open
-#
-# Action index `-1` is the gripper because `ActionsCfg` declares
-# `arm_action` (3-D) then `gripper_action` (1-D); concatenated layout is
-# `[ee_dx, ee_dy, ee_dz, gripper]`.
-def release_bonus_in_drop_zone(
-    env: "ManagerBasedRLEnv",
-    xy_threshold: float = 0.02,
-    z_threshold: float = 0.03,
-) -> torch.Tensor:
-    """`1.0` if (xy_to_target < xy_threshold AND |z_to_target| < z_threshold
-    AND gripper_action >= 0) else `0.0`.
-
-    Target follows the same mux as `grasping_cube_goal_distance`:
-        not-yet-stacked: grasping_cube=cube_0, target=cube_1.xyz+[0,0,CUBE_SIZE]
-        stacked        : grasping_cube=cube_2, target=cube_0.xyz+[0,0,CUBE_SIZE]
-    """
-    cube_0 = env.scene["cube_0"]
-    cube_1 = env.scene["cube_1"]
-    cube_2 = env.scene["cube_2"]
-    on_stack = _cube_0_on_cube_1_predicate(env)              # (N,) bool
-    pos_0 = cube_0.data.root_pos_w[:, :3]
-    pos_1 = cube_1.data.root_pos_w[:, :3]
-    pos_2 = cube_2.data.root_pos_w[:, :3]
-    grasping_pos = torch.where(on_stack.unsqueeze(-1), pos_2, pos_0)
-    base_pos     = torch.where(on_stack.unsqueeze(-1), pos_0, pos_1)
-    target_pos   = base_pos.clone()
-    target_pos[:, 2] = target_pos[:, 2] + CUBE_SIZE
-
-    delta = grasping_pos - target_pos                        # (N, 3)
-    xy_dist = torch.norm(delta[:, :2], dim=-1)
-    z_dist  = torch.abs(delta[:, 2])
-    in_zone = (xy_dist < xy_threshold) & (z_dist < z_threshold)
-
-    # action_manager.action carries the latest policy output, raw, in the
-    # concatenated [arm(3), gripper(1)] layout. >= 0 → open per the
-    # BinaryJointAction.process_actions threshold.
-    gripper_open = env.action_manager.action[:, -1] >= 0.0   # (N,) bool
-
-    return (in_zone & gripper_open).float()
