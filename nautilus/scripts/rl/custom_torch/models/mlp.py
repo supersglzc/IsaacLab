@@ -41,7 +41,7 @@ class MLPNet(nn.Module):
         if isinstance(in_dim, Sequence):
             in_dim = in_dim[0]
         if hidden_layers is None:
-            hidden_layers = [256, 256]
+            hidden_layers = [512, 256, 128]
         self.net = create_simple_mlp(in_dim, out_dim, hidden_layers, use_batchnorm=use_batchnorm)
 
     def forward(self, x: Tensor) -> Tensor:

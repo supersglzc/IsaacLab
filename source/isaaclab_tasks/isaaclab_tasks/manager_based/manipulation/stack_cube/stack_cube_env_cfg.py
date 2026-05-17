@@ -327,7 +327,7 @@ class RewardsCfg:
     linear_lift_stage_b = RewTerm(
         func=mdp.linear_lift_stage_b,
         params={"init_z": 0.0215, "target_z": 0.0675},
-        weight=2.0,
+        weight=1.0,
     )
 
     # Per-step bonus when the grasping cube hovers over the stack target
@@ -338,7 +338,7 @@ class RewardsCfg:
     release_bonus = RewTerm(
         func=mdp.release_bonus_in_drop_zone,
         params={"xy_threshold": 0.02, "z_threshold": 0.03},
-        weight=1.0,
+        weight=0.0,
     )
 
 

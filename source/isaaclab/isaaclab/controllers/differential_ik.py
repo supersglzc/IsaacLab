@@ -1,13 +1,12 @@
-# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import torch
+from typing import TYPE_CHECKING
 
 from isaaclab.utils.math import apply_delta_pose, compute_pose_error
 
@@ -210,7 +209,7 @@ class DifferentialIKController:
             # U: 6xd, S: dxd, V: d x num-joint
             U, S, Vh = torch.linalg.svd(jacobian)
             S_inv = 1.0 / S
-            S_inv = torch.where(min_singular_value < S, S_inv, torch.zeros_like(S_inv))
+            S_inv = torch.where(S > min_singular_value, S_inv, torch.zeros_like(S_inv))
             jacobian_pinv = (
                 torch.transpose(Vh, dim0=1, dim1=2)[:, :, :6]
                 @ torch.diag_embed(S_inv)
@@ -229,12 +228,21 @@ class DifferentialIKController:
             # parameters
             lambda_val = self.cfg.ik_params["lambda_val"]
             # computation
-            jacobian_T = torch.transpose(jacobian, dim0=1, dim1=2)
-            lambda_matrix = (lambda_val**2) * torch.eye(n=jacobian.shape[1], device=self._device)
-            delta_joint_pos = (
-                jacobian_T @ torch.inverse(jacobian @ jacobian_T + lambda_matrix) @ delta_pose.unsqueeze(-1)
-            )
+            jacobian_T = torch.transpose(jacobian, dim0=1, dim1=2) # n, q, 6
+            lambda_matrix = (lambda_val**2) * torch.eye(n=6, device=self._device)
+            kin_matrix = torch.bmm(jacobian, jacobian_T) + lambda_matrix[None, ...]  # n, 6, 6
+            delta_joint_pos = torch.bmm(jacobian_T, torch.linalg.solve(kin_matrix, delta_pose.unsqueeze(-1)))
             delta_joint_pos = delta_joint_pos.squeeze(-1)
+        # elif self.cfg.ik_method == "dls":  # damped least squares
+        #     # parameters
+        #     lambda_val = self.cfg.ik_params["lambda_val"]
+        #     # computation
+        #     jacobian_T = torch.transpose(jacobian, dim0=1, dim1=2)
+        #     lambda_matrix = (lambda_val**2) * torch.eye(n=jacobian.shape[1], device=self._device)
+        #     delta_joint_pos = (
+        #         jacobian_T @ torch.inverse(jacobian @ jacobian_T + lambda_matrix) @ delta_pose.unsqueeze(-1)
+        #     )
+        #     delta_joint_pos = delta_joint_pos.squeeze(-1)
         else:
             raise ValueError(f"Unsupported inverse-kinematics method: {self.cfg.ik_method}")
 
