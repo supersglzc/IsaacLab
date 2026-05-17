@@ -142,11 +142,19 @@ def grasping_cube_goal_distance(
     env: "ManagerBasedRLEnv",
     std: float = 0.3,
     minimal_height: float = 0.04,
+    minimal_height_b: float | None = None,
 ) -> torch.Tensor:
     """`(grasping_cube lifted) * (1 - tanh(||grasping_cube - target|| / std))`.
 
     target = cube_1.xyz + [0,0,CUBE_SIZE] when predicate False,
              cube_0.xyz + [0,0,CUBE_SIZE] when True.
+
+    Per-state lift gate:
+      state A (predicate False): `minimal_height` applies (default 0.04)
+      state B (predicate True ): `minimal_height_b` applies — set this to the
+        target z (= cube_0.z + CUBE_SIZE ≈ 0.1075 for a cube on cube_1 on
+        the table) to keep `align` from firing until cube_2 is lifted above
+        the existing stack. Default = `minimal_height` (state A behaviour).
     """
     cube_0 = env.scene["cube_0"]
     cube_1 = env.scene["cube_1"]
@@ -160,10 +168,39 @@ def grasping_cube_goal_distance(
     target_pos   = base_pos.clone()
     target_pos[:, 2] = target_pos[:, 2] + CUBE_SIZE
     d = torch.norm(grasping_pos - target_pos, dim=1)
-    lifted = (grasping_pos[:, 2] > minimal_height).float()
+    h_b = minimal_height if minimal_height_b is None else float(minimal_height_b)
+    effective_min_h = torch.where(
+        on_stack,
+        torch.full_like(grasping_pos[:, 2], h_b),
+        torch.full_like(grasping_pos[:, 2], minimal_height),
+    )
+    lifted = (grasping_pos[:, 2] > effective_min_h).float()
     base = lifted * (1.0 - torch.tanh(d / std))
-    # State B: scale base by 10× and add the +1.0 compensation; state A unchanged.
+    # State B: scale base by 50× and add the +1.0 compensation; state A unchanged.
     return torch.where(on_stack, 50.0 * base + 1.0, base)
+
+
+def linear_lift_stage_b(
+    env: "ManagerBasedRLEnv",
+    init_z: float = 0.0215,
+    target_z: float = 0.1075,
+) -> torch.Tensor:
+    """Dense lift reward, ACTIVE ONLY IN STATE B (cube_0 stacked on cube_1).
+
+    Returns `clamp((cube_2.z - init_z) / (target_z - init_z), 0, 1)` when
+    `_cube_0_on_cube_1_predicate` is True, else 0. Linearly rewards cube_2
+    being lifted from the table (`init_z` ≈ CUBE_INIT_Z) up to the stacking
+    target height (`target_z` ≈ cube_1.z + 2·CUBE_SIZE = 0.0215 + 0.086 =
+    0.1075). Paired with raising `grasping_cube_goal_distance.minimal_height_b`
+    to the same `target_z` so that horizontal align reward only fires after
+    cube_2 has cleared the existing two-cube stack — discourages dragging
+    cube_2 sideways through cube_0/cube_1.
+    """
+    cube_2 = env.scene["cube_2"]
+    z = cube_2.data.root_pos_w[:, 2]
+    progress = ((z - init_z) / max(target_z - init_z, 1e-6)).clamp(0.0, 1.0)
+    on_stack = _cube_0_on_cube_1_predicate(env)
+    return torch.where(on_stack, progress, torch.zeros_like(progress))
 
 
 # iter 33 — module-level per-env latch buffers (keyed by id(env), key_str).

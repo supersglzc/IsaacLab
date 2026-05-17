@@ -153,24 +153,33 @@ class FrankaStackCubeEnvCfg(StackCubeEnvCfg):
             ),
         )
 
-        # Action — 3-D position-only EMA EE-delta with locked RPY. The EE
-        # quaternion is fixed at the post-reset value; the policy only moves
-        # the EE in xyz. The IK controller (pose / abs / dls) receives an
-        # absolute 7-D pose target each step. body_name="fr3_hand" with a
-        # 0.1034 m z offset matches the `ee_frame` FrameTransformer.
-        # Coupled with a 1-D binary gripper for a total action dim of 4.
+        # Action — Cartesian EE-delta with locked RPY. Policy outputs 3-D xyz
+        # delta; IK target = fingertip TCP at body_offset=(0,0,0.2) — same
+        # frame as ee_frame OffsetCfg. pos_lower_limit[2]=0.005 keeps the
+        # fingertip from driving through the table (root-frame z; world floor
+        # = root_z + 0.005 ≈ 0.015 given robot base at world z=0.01).
         self.actions.arm_action = mdp.EMACumulativeDeltaPositionActionCfg(
             asset_name="robot",
             joint_names=["fr3_joint.*"],
             body_name="fr3_hand",
-            body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=(0.0, 0.0, 0.1034)),
+            body_offset=DifferentialInverseKinematicsActionCfg.OffsetCfg(pos=(0.0, 0.0, 0.2)),
             controller=DifferentialIKControllerCfg(
                 command_type="pose",
                 use_relative_mode=False,
                 ik_method="dls",
             ),
-            scale=(0.02, 0.02, 0.02),
-            alpha=0.2,
+            scale=(0.01, 0.01, 0.01),
+            alpha=0.5,
+            # Workspace clamp in ROBOT ROOT FRAME (robot base @ world
+            # (-0.274, 0.49, 0.01)). Tight bounds matching where the cubes
+            # can spawn (per `reset_cube_*` events: world x ∈ [-0.20, 0.20],
+            # world y ∈ [0.0, 0.4]) plus ~3 cm margin so the EE can swing
+            # around a cube edge to grasp it. z-ceiling = target_z(world
+            # 0.1075) + 5 cm headroom = 0.1575 world = 0.15 root. Keeps the
+            # IK from being asked to drive outside the reachable workspace
+            # and prevents lift-overshoot above the stacking height.
+            pos_lower_limit=[ 0.05, -0.52, 0.005],
+            pos_upper_limit=[ 0.50, -0.05, 0.16 ],
         )
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",

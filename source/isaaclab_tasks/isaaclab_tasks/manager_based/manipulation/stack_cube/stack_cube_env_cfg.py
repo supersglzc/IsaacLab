@@ -221,7 +221,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.0, 0.2), "y": (0.2, 0.4), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.0, 0.1), "y": (0.15, 0.25), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_0"),
         },
@@ -230,7 +230,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (0.0, 0.2), "y": (0.0, 0.2), "z": (0.0, 0.0)},
+            "pose_range": {"x": (0.0, 0.1), "y": (0.0, 0.1), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_1"),
         },
@@ -239,7 +239,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.20, 0.0), "y": (0.0, 0.1), "z": (0.0, 0.0)},
+            "pose_range": {"x": (-0.15, -0.05), "y": (0.0, 0.1), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("cube_2"),
         },
@@ -280,7 +280,7 @@ class RewardsCfg:
     # Both call the same grasping-cube mux function (cube_0 in A / cube_2 in B).
     reach = RewTerm(
         func=mdp.grasping_cube_ee_distance,
-        params={"std": 0.15},
+        params={"std": 0.1},
         weight=0.02,
     )
     lift = RewTerm(
@@ -290,7 +290,13 @@ class RewardsCfg:
     )
     align = RewTerm(
         func=mdp.grasping_cube_goal_distance,
-        params={"std": 0.1, "minimal_height": 0.04},
+        # state A (cube_0 grasping): minimal_height = 0.04 (cube must be lifted
+        # off the table to start aligning). state B (cube_2 grasping):
+        # minimal_height_b = target_z = cube_1.z + 2·CUBE_SIZE = 0.1075 (cube_2
+        # must be lifted ABOVE the existing two-cube stack before align fires)
+        # — pairs with `linear_lift_stage_b` to enforce "lift first, align
+        # second" and avoid dragging cube_2 horizontally through the stack.
+        params={"std": 0.08, "minimal_height": 0.04, "minimal_height_b": 0.0875},
         weight=0.32,
     )
 
@@ -312,6 +318,18 @@ class RewardsCfg:
         weight=2000.0,
     )
 
+    # Stage-2-only DENSE lift reward — gives cube_2 a linear z-progress
+    # signal between the table (`init_z=CUBE_INIT_Z=0.0215`) and the
+    # stacking target (`target_z = cube_1_z + 2·CUBE_SIZE = 0.1075`). Drives
+    # the policy to lift cube_2 STRAIGHT UP before any horizontal motion;
+    # paired with `align.minimal_height_b=0.1075`, ensures cube_2 clears the
+    # cube_0/cube_1 stack before align starts pulling it sideways.
+    linear_lift_stage_b = RewTerm(
+        func=mdp.linear_lift_stage_b,
+        params={"init_z": 0.0215, "target_z": 0.0675},
+        weight=2.0,
+    )
+
     # Per-step bonus when the grasping cube hovers over the stack target
     # (xy < 2 cm, |z| < 3 cm) AND the policy outputs an "open gripper"
     # action this step. Modest weight: the success_bonus (200) and
@@ -320,43 +338,26 @@ class RewardsCfg:
     release_bonus = RewTerm(
         func=mdp.release_bonus_in_drop_zone,
         params={"xy_threshold": 0.02, "z_threshold": 0.03},
-        weight=0.0,
+        weight=1.0,
     )
 
 
 @configclass
 class TerminationsCfg:
-    """Time-out (truncation) + two failure terminations:
+    """Time-out only — no failure terminations.
 
-      - `stack_broken`        — 2-cube stack broken: cube_0 was on cube_1 at
-                                some point this episode and isn't now.
-      - `tower_broken`        — 3-cube stack broken: the full tower
-                                (cube_0-on-cube_1 AND cube_2-on-cube_0) was
-                                assembled at some point and isn't now.
-
-    Success is NOT a termination — the agent keeps the full horizon to hold
-    the tower together. Either pair coming apart after assembly ends the
-    episode.
+    Both `stack_broken` and `tower_broken` are intentionally NO LONGER
+    terminations (option B from 2026-05-17 design discussion). The policy
+    keeps the full horizon even after knocking the stack apart, so it can
+    re-grasp + re-stack and try again. Per-event reward signals still exist
+    via `stack_broke_penalty` (single-fire -200 latch in §6); they just
+    don't kill the rollout. This frees expected-value math for risky
+    stage-2 exploration — a failed attempt costs reward but not opportunity.
 
     Tower order (bottom-up): cube_1 (base on table) → cube_0 → cube_2 (top).
     """
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-
-    # Failure: cube_0 was stacked at some point this episode AND is now no
-    # longer stacked. Mirrors the `stack_broke_penalty` reward trigger so the
-    # penalty fires the same step the episode terminates.
-    stack_broken = DoneTerm(
-        func=mdp.cube_0_stack_broken,
-        params={"xy_threshold": 0.02, "z_threshold": 0.01},
-    )
-
-    # Failure: full 3-tier tower was built (latch `three_tier_tower_once` set
-    # by `three_tier_tower_bonus_once_per_episode`) AND is now broken.
-    tower_broken = DoneTerm(
-        func=mdp.three_tier_tower_broken,
-        params={"xy_threshold": 0.02, "z_threshold": 0.01},
-    )
 
 
 @configclass
