@@ -13,16 +13,17 @@ algo: ppo
 task:
 
 # ---- Sim / device ----
-num_envs: 2048            # matches reference examples/training_examples/jax_rl/conf.yaml
+num_envs: 4096            # matches reference examples/training_examples/jax_rl/conf.yaml
 n_envs: ${.num_envs}      # alias used by SB3 path
 device: cuda
 sim_device: ${.device}
 rl_device: ${.device}
 graphics_device_id: 0
-seed: 42
+seed:                     # null/empty -> auto-randomized per launch (train.py); pass `seed=N` to pin
 gpu_sim: true
 total_timesteps: 100_000_000     # = 10e7, mirrors reference total_timesteps
 max_step: ${.total_timesteps}   # custom_torch alias
+checkpoint_interval: 10_000_000  # periodic save to checkpoint_<NN>M.pth; 0 disables
 wandb:
 
 # ---- Env construction (custom_jax: passed to RLFactory.make as **env_params) ----
@@ -40,25 +41,25 @@ render_max_steps: 1000
 # ---- PPO hyperparameters (unified key names) ----
 # Defaults aligned with loco-mujoco's reference conf.yaml at
 # examples/training_examples/jax_rl/conf.yaml.
-n_steps: 64               # rollout horizon per iteration (custom_torch reads as horizon_len)
+n_steps: 16               # rollout horizon per iteration (custom_torch reads as horizon_len)
 horizon_len: ${.n_steps}
 batch_size: 8192
-n_epochs: 16
-n_minibatches: 32         # 8x more grad steps per outer iter than the old default of 4
+n_epochs: 8
+n_minibatches: 64         # 8x more grad steps per outer iter than the old default of 4
 update_times: ${.n_epochs}
 gamma: 0.99
 gae_lambda: 0.95
-clip_range: 0.2
+clip_range: 0.15
 clip_range_vf:
-ent_coef: 0.0
+ent_coef: 0.01
 vf_coef: 0.5
 max_grad_norm: 0.5        # reference uses 0.5, was 1.0 here
-learning_rate: 1.0e-4     # reference uses 1e-4, was 3e-4 here
+learning_rate: 5.0e-4     # reference uses 1e-4, was 3e-4 here
 anneal_lr: false          # reference's _get_optimizer respects this flag (linear decay over num_updates)
 weight_decay: 0.0         # reference passes this to optax.adamw
 
 # ---- Policy network (custom_jax reads hidden_dims + init_log_std + learnable_std) ----
-hidden_dims: [512, 256]   # reference conf.yaml hidden_layers; was [256, 256] here
+hidden_dims: [512, 256, 128]   # reference conf.yaml hidden_layers; was [256, 256] here
 activation: tanh
 init_log_std: -0.223      # = log(0.8); reference uses init_std=0.8, our log_std default was 0.0 (=> std=1.0)
 learnable_std: true       # if false, log_std is wrapped in stop_gradient (fixed std)

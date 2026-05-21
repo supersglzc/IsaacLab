@@ -341,7 +341,7 @@ def _build_isaaclab_env(task: str, num_envs: int, device: str, render_mode=None)
 def create_env(cfg):
     task = str(cfg.get("task"))
     n = int(cfg.get("num_envs", cfg.get("n_envs", 1)))
-    seed = int(cfg.get("seed", 0))
+    seed = int(cfg.get("seed") or 0)  # tolerate seed=null (auto-randomize in train.py)
     device = str(cfg.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
     gpu_sim = bool(cfg.get("gpu_sim", False))
 
@@ -362,17 +362,32 @@ def create_env(cfg):
 
 
 def create_render_env(cfg):
-    """Single env (n=1) with rendering enabled — used by render.py and the
-    in-train video logger. For IsaacLab this requires AppLauncher to be
-    started with ``enable_cameras=True`` BEFORE any sim build."""
+    """Few envs (default n=3) with rendering enabled — used by render.py and the
+    in-train video logger. IsaacLab tiles envs side-by-side under one camera,
+    so a 3-env render gives a side-by-side comparison of the same policy seed
+    in three slightly different reset configs without inflating render time
+    much (Kit boot dominates). Override with `render_num_envs=<N>` (max 3)."""
     task = str(cfg.get("task"))
-    seed = int(cfg.get("seed", 0))
+    seed = int(cfg.get("seed") or 0)  # tolerate seed=null (auto-randomize in train.py)
     device = str(cfg.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
     gpu_sim = bool(cfg.get("gpu_sim", False))
+    render_num_envs = max(1, min(3, int(cfg.get("render_num_envs", 1))))
 
     if gpu_sim:
         _ensure_isaac_app(enable_cameras=True, headless=True)
-        env = _build_isaaclab_env(task, num_envs=1, device=device, render_mode="rgb_array")
+        # IMPORTANT: do NOT route through `_isaaclab_env.make_isaaclab_env` for
+        # render — that helper sets `use_fabric=False` (cloner-error workaround
+        # against a specific IsaacLab fork). With Fabric disabled, the offscreen
+        # render buffer doesn't refresh between sim steps, so env.render()
+        # returns the SAME (stale) frame for every call regardless of the actual
+        # articulation state. Build directly with `use_fabric=True` for render
+        # so frames track the live sim. We don't need `_DetailedRewardWrapper`
+        # here — render only visualizes, doesn't decompose rewards.
+        import gymnasium as _gym
+        import isaaclab_tasks  # noqa: F401  — registers task ids
+        from isaaclab_tasks.utils import parse_env_cfg as _parse_env_cfg
+        env_cfg = _parse_env_cfg(task, device=device, num_envs=render_num_envs, use_fabric=True)
+        env = _gym.make(task, cfg=env_cfg, render_mode="rgb_array")
         try:
             env.reset(seed=seed)
         except TypeError:

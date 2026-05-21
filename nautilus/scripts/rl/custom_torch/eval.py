@@ -83,14 +83,26 @@ def main(cfg: DictConfig):
         ckpt = REPO / ckpt
     if not ckpt.exists():
         print(f"[error] checkpoint not found: {ckpt}", file=sys.stderr); sys.exit(2)
-    set_random_seed(int(cfg.get("seed", 42)))
+    set_random_seed(int(cfg.get("seed") or 42))  # tolerate seed=null
 
     env = create_env(cfg)
+    # Pre-load checkpoint to enable obs/value normalization if training used it,
+    # then build agent so it allocates obs_rms / value_rms.
+    state = torch.load(str(ckpt), map_location=cfg.device, weights_only=False)
+    if state.get("obs_norm") or "obs_rms" in state:
+        OmegaConf.update(cfg, "algo.obs_norm", True, merge=True)
+    if state.get("value_norm") or "value_rms" in state:
+        OmegaConf.update(cfg, "algo.value_norm", True, merge=True)
     agent_cls = _resolve_algo_class(str(cfg.algo.name))
     agent = agent_cls(env=env, cfg=cfg)
-    state = torch.load(str(ckpt), map_location=cfg.device, weights_only=False)
     agent.actor.load_state_dict(state["actor"])
     agent.critic.load_state_dict(state["critic"])
+    if "obs_rms" in state and getattr(agent, "obs_rms", None) is not None:
+        agent.obs_rms.load_state_dict(state["obs_rms"])
+        print("[eval] restored obs_rms from checkpoint", flush=True)
+    if "value_rms" in state and getattr(agent, "value_rms", None) is not None:
+        agent.value_rms.load_state_dict(state["value_rms"])
+        print("[eval] restored value_rms from checkpoint", flush=True)
     agent.actor.eval()
     agent.critic.eval()
 
@@ -106,12 +118,18 @@ def main(cfg: DictConfig):
     max_safety = 100_000
     while len(completed_returns) < target and safety_steps < max_safety:
         with torch.no_grad():
+            # Normalize obs via obs_rms BEFORE calling the actor — training's
+            # rollout path (agent.get_actions in ppo.py) normalizes first, so
+            # the actor was trained on normalized inputs. Skipping this step
+            # silently produces near-zero performance even with the correct
+            # checkpoint loaded.
+            obs_in = agent.obs_rms.normalize(obs) if getattr(agent, "obs_rms", None) is not None else obs
             if hasattr(agent.actor, "get_actions"):
-                action = agent.actor.get_actions(obs, sample=False)
+                action = agent.actor.get_actions(obs_in, sample=False)
                 if isinstance(action, tuple):
                     action = action[0]
             else:
-                action = agent.actor(obs)
+                action = agent.actor(obs_in)
         next_obs, reward, done, info = env.step(action)
         returns += reward.float()
         lengths += 1

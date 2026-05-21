@@ -47,6 +47,18 @@ def _resolve_algo_class(name: str):
     raise KeyError(f"Algorithm '{name}' not found in registry.")
 
 
+def _grab_frame_via(target) -> np.ndarray | None:
+    """Direct render bypass — call ``target.render()`` and normalize to ndarray."""
+    if not hasattr(target, "render"):
+        return None
+    frame = target.render()
+    if isinstance(frame, np.ndarray):
+        return frame.astype(np.uint8)
+    if isinstance(frame, list) and frame and isinstance(frame[0], np.ndarray):
+        return frame[0].astype(np.uint8)
+    return None
+
+
 def _grab_frame(env) -> np.ndarray | None:
     raw = getattr(env, "_raw_env", None)
     target = raw if raw is not None else env
@@ -115,6 +127,9 @@ def main(cfg: DictConfig):
     task = cfg.get("task")
     ckpt_path = cfg.get("checkpoint")
     fps = int(cfg.get("fps", 30))
+    # Cap at the env's max_episode_length when reachable so we never overshoot
+    # one episode. Falls back to the cfg value (default 1000) for envs that
+    # don't expose max_episode_length.
     max_steps = int(cfg.get("max_steps", 1000))
     if task is None:
         print("[error] task=<id> is required.", file=sys.stderr); sys.exit(2)
@@ -127,33 +142,157 @@ def main(cfg: DictConfig):
         print(f"[error] checkpoint not found: {ckpt}", file=sys.stderr); sys.exit(2)
 
     env = create_render_env(cfg)
+    # Tighten max_steps to the env's episode horizon when available — saves up
+    # to 700 steps of pointless rendering on short-horizon envs (StackCup uses
+    # max_episode_length=300; default cfg.max_steps=1000 would run 3.3× longer
+    # than needed for a single rollout).
+    raw_env = getattr(env, "_raw_env", env)
+    env_max_len = getattr(getattr(raw_env, "unwrapped", raw_env), "max_episode_length", None)
+    if env_max_len is not None and int(env_max_len) > 0:
+        max_steps = min(max_steps, int(env_max_len) + 1)
+        print(f"[render] capping max_steps at env.max_episode_length+1 = {max_steps}", flush=True)
+    # Pre-load checkpoint to detect whether obs/value normalization was used
+    # during training. If yes, force-enable on cfg.algo BEFORE building the
+    # agent so the agent allocates obs_rms / value_rms ready to be populated.
+    state = torch.load(str(ckpt), map_location=cfg.device, weights_only=False)
+    if state.get("obs_norm") or "obs_rms" in state:
+        OmegaConf.update(cfg, "algo.obs_norm", True, merge=True)
+    if state.get("value_norm") or "value_rms" in state:
+        OmegaConf.update(cfg, "algo.value_norm", True, merge=True)
     agent_cls = _resolve_algo_class(str(cfg.algo.name))
     agent = agent_cls(env=env, cfg=cfg)
-    state = torch.load(str(ckpt), map_location=cfg.device, weights_only=False)
     agent.actor.load_state_dict(state["actor"])
     agent.critic.load_state_dict(state["critic"])
+    if "obs_rms" in state and getattr(agent, "obs_rms", None) is not None:
+        agent.obs_rms.load_state_dict(state["obs_rms"])
+        print("[render] restored obs_rms from checkpoint", flush=True)
+    if "value_rms" in state and getattr(agent, "value_rms", None) is not None:
+        agent.value_rms.load_state_dict(state["value_rms"])
+        print("[render] restored value_rms from checkpoint", flush=True)
     agent.actor.eval()
 
     frames: list[np.ndarray] = []
     obs, _ = env.reset()
+
+    # Position the IsaacLab viewer camera close to the action — the default
+    # camera sits far above the env grid, so manipulation-scale motion (5–10 cm
+    # of EE travel + 8 cm cups) is visually imperceptible. Pin a tabletop-eye
+    # vantage of env 0 (the canonical render env). Override via cfg.viewer_eye
+    # / cfg.viewer_target if the task has different geometry.
+    # Wider isometric view — shows the full Franka (base at root, arm up to
+    # ~1.2 m), the table (centered at ~0.5 m forward), and the cups together.
+    # Eye is ~3 m diagonal from workspace center, lifted to 1.6 m so we look
+    # SLIGHTLY DOWN onto the table — captures the robot base and the cup
+    # tops in one frame.
+    viewer_eye    = list(cfg.get("viewer_eye",    [2.5, 2.5, 1.6]))
+    viewer_target = list(cfg.get("viewer_target", [0.30, 0.0, 0.4]))
+    env_origin = raw_env.unwrapped.scene.env_origins[0].cpu().numpy().tolist()
+    eye    = [viewer_eye[i]    + env_origin[i] for i in range(3)]
+    target = [viewer_target[i] + env_origin[i] for i in range(3)]
+
+    def _set_viewer_camera():
+        try:
+            raw_env.unwrapped.sim.set_camera_view(eye=eye, target=target)
+        except Exception:
+            pass
+
+    def _refresh_render():
+        """Force a render pass so env.render() returns an up-to-date frame.
+        ManagerBasedEnv.step() runs sim.step(render=False) — it does NOT update
+        the offscreen render buffer. Without an explicit sim.render() call
+        between step and env.render(), env.render() returns the buffer from
+        the LAST render pass (i.e. a stale frame from when the renderer was
+        first initialized). Calling sim.render() forces a fresh capture."""
+        try:
+            raw_env.unwrapped.sim.render()
+        except Exception:
+            pass
+
+    _set_viewer_camera()
+    print(f"[render] viewer camera   eye={eye}  target={target} (re-pinned every step)", flush=True)
+
     ep_return = 0.0
+    action_norms: list[float] = []
+
+    # Capture the post-reset frame ONCE before the step loop. Subsequent frames
+    # are captured AFTER each env.step — this matches the IsaacLab gym render
+    # contract: env.render() returns the buffer rendered during the most recent
+    # sim.step(). Capturing BEFORE env.step gave stale frames (the buffer hadn't
+    # been refreshed since the previous loop iteration's render).
+    _set_viewer_camera()
+    f0 = _grab_frame(env)
+    if f0 is not None:
+        frames.append(f0)
+
     for step in range(max_steps):
-        f = _grab_frame(env)
-        if f is not None:
-            frames.append(f)
         with torch.no_grad():
-            if hasattr(agent.actor, "get_actions"):
-                action = agent.actor.get_actions(obs, sample=False)
+            if cfg.get("random_action", False):
+                # Bypass the policy entirely — uniform sample in [-1, 1] per dim.
+                # Use this to verify the renderer captures motion: a random policy
+                # SHOULD produce a clearly-moving robot. If the video still looks
+                # static under random actions, the issue is in the renderer; if
+                # only the trained policy looks static, the issue is the policy.
+                act_dim = env.single_action_space.shape[-1] if hasattr(env, "single_action_space") else (
+                    env.action_space.shape[-1] if hasattr(env.action_space, "shape") else
+                    env.action_space.shape[0]
+                )
+                action = (torch.rand((env.num_envs, act_dim), device=cfg.device) * 2 - 1) * 1.5
+            elif hasattr(agent.actor, "get_actions"):
+                # Normalize obs via obs_rms BEFORE calling the actor — training's
+                # rollout path (agent.get_actions in ppo.py) normalizes first, so
+                # the actor was trained on normalized inputs. Skipping this step
+                # silently produces near-zero performance even with the correct
+                # checkpoint loaded.
+                obs_in = agent.obs_rms.normalize(obs) if getattr(agent, "obs_rms", None) is not None else obs
+                action = agent.actor.get_actions(obs_in, sample=True)  # stochastic eval
                 if isinstance(action, tuple):
                     action = action[0]
             else:
-                action = agent.actor(obs)
+                obs_in = agent.obs_rms.normalize(obs) if getattr(agent, "obs_rms", None) is not None else obs
+                action = agent.actor(obs_in)
+        # Debug: track action magnitude AND EE pose — if EE moves but video looks
+        # static, the render-buffer is broken; if EE stays put despite non-zero
+        # actions, the action pipeline / policy is the issue.
+        if isinstance(action, torch.Tensor):
+            action_norms.append(float(action.abs().mean().item()))
+            if step in (0, 5, 20, 50, 100, 200, max_steps - 1):
+                a = action[0] if action.dim() > 1 else action
+                try:
+                    _r = raw_env.unwrapped.scene["robot"]
+                    _h = _r.body_names.index("panda_hand")
+                    _ee_pos = _r.data.body_pos_w[0, _h].detach().cpu().numpy().round(3).tolist()
+                except Exception:
+                    _ee_pos = "n/a"
+                print(f"[render] step={step:3d}  action.mean|abs|={action_norms[-1]:.4f}  "
+                      f"action[0]={a.detach().cpu().numpy().round(3).tolist()}  ee={_ee_pos}", flush=True)
         next_obs, reward, done, info = env.step(action)
-        ep_return += float(reward.item() if isinstance(reward, torch.Tensor) else reward)
-        if bool(done.item() if isinstance(done, torch.Tensor) else done):
+        # Capture frame AFTER env.step — env.step internally calls sim.step
+        # which updates the render buffer; env.render() then reads that buffer.
+        # Capturing BEFORE env.step would return the previous step's stale buffer.
+        _set_viewer_camera()
+        _refresh_render()
+        # Try the FULLY UNWRAPPED env's render first — bypasses the gym.Wrapper
+        # chain (DetailedRewardWrapper / IsaacLabVecAdapter). Some IsaacLab
+        # versions cache the render buffer at the wrapper level and don't
+        # invalidate on step. Falling back to the wrapper if unwrapped fails.
+        unwrapped_target = getattr(raw_env, "unwrapped", raw_env)
+        f = _grab_frame_via(unwrapped_target)
+        if f is None:
             f = _grab_frame(env)
-            if f is not None:
-                frames.append(f)
+        if f is not None:
+            frames.append(f)
+        if isinstance(reward, torch.Tensor):
+            ep_return += float(reward.mean().item())   # multi-env: mean across envs
+        else:
+            ep_return += float(reward)
+        # IsaacLab auto-resets terminated envs internally on multi-env render;
+        # don't break on first done — keep going for max_steps so the user sees
+        # the full rollout horizon. (For single-env CPU fallback, done IS the
+        # episode terminator and we DO break.)
+        if isinstance(done, torch.Tensor):
+            if done.numel() == 1 and bool(done.item()):
+                break
+        elif done:
             break
         obs = next_obs
 
@@ -162,7 +301,21 @@ def main(cfg: DictConfig):
     sheet = out_dir / "render_contact_sheet.jpg"
     _write_mp4(frames, mp4, fps=fps)
     _write_contact_sheet(frames, sheet)
-    print(f"[render] wrote {mp4} ({len(frames)} frames, return={ep_return:.4f})", flush=True)
+    a_arr = np.asarray(action_norms) if action_norms else np.zeros(1)
+    print(
+        f"[render] wrote {mp4} ({len(frames)} frames, return={ep_return:.4f}, "
+        f"action|abs|.mean={a_arr.mean():.4f} max={a_arr.max():.4f} min={a_arr.min():.4f})",
+        flush=True,
+    )
+
+    # Hard-exit BEFORE Kit shutdown. With Isaac Sim 5.1 + IsaacLab,
+    # `sim_app.close()` (called via atexit hooks) hangs on USD stage detach —
+    # the render hangs indefinitely after the MP4 is on disk. The MP4 + contact
+    # sheet are flushed by `_write_*` above, so we can skip the cleanup safely.
+    # This avoids the need for an external watchdog that pkills the python.
+    import os as _os
+    _os.sync()
+    _os._exit(0)
 
 
 def _default_act_class(algo: str) -> str:

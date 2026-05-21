@@ -94,7 +94,29 @@ class RunningMeanStd:
             return self.mean.to(device), self.var.to(device), self.epsilon
         return self.mean, self.var, self.epsilon
 
+    def state_dict(self) -> dict:
+        """Proper serialization for checkpointing — needed so render/eval can
+        reproduce training-time obs normalization. The actor is trained on
+        normalized obs; without restoring these stats, inference sees OOD obs
+        and the policy outputs garbage."""
+        return {
+            "mean": self.mean.detach().cpu(),
+            "var": self.var.detach().cpu(),
+            "count": float(self.count),
+            "epsilon": float(self.epsilon),
+        }
+
     def load_state_dict(self, info):
-        self.mean = info[0]
-        self.var = info[1]
-        self.count = info[2]
+        # Accept new dict format (post-fix) OR legacy tuple format.
+        if isinstance(info, dict):
+            self.mean = info["mean"].to(self.device)
+            self.var = info["var"].to(self.device)
+            self.count = float(info["count"])
+            self.epsilon = float(info.get("epsilon", self.epsilon))
+        else:
+            # Legacy tuple/list — index 2 was epsilon in get_states() output
+            # (read as count by old load_state_dict; preserving the existing
+            # call sites' behavior).
+            self.mean = info[0]
+            self.var = info[1]
+            self.count = info[2]

@@ -127,7 +127,17 @@ def main(cfg: DictConfig):
     if task is None:
         print("[error] task=<id> is required (Hydra override).", file=sys.stderr)
         sys.exit(2)
-    set_random_seed(int(cfg.get("seed", 42)))
+    # Resolve seed: `seed: null` (or "random"/"auto") in the config picks a
+    # fresh random int per launch; otherwise honor the explicit value.
+    _seed_raw = cfg.get("seed", 42)
+    if _seed_raw is None or (isinstance(_seed_raw, str) and _seed_raw.lower() in ("random", "auto", "none")):
+        import secrets
+        _seed = secrets.randbits(31)  # 31-bit int, fits everywhere
+        print(f"[train] seed: auto-randomized to {_seed}", flush=True)
+        cfg.seed = _seed   # persist in resolved_config.yaml for reproducibility
+    else:
+        _seed = int(_seed_raw)
+    set_random_seed(_seed)
 
     env = create_env(cfg)
 
@@ -192,6 +202,21 @@ def main(cfg: DictConfig):
           f"log_interval={log_interval} wandb={'on' if use_wandb else 'off'}", flush=True)
 
     next_log_at = log_interval
+    ckpt_interval = int(cfg.get("checkpoint_interval", 10_000_000))
+    next_ckpt_at = ckpt_interval if ckpt_interval > 0 else None
+
+    def _save_ckpt(step: int, path):
+        extra = {"algo": str(cfg.algo.name), "task": str(task)}
+        if getattr(agent, "obs_rms", None) is not None:
+            extra["obs_rms"] = agent.obs_rms.state_dict()
+            extra["obs_norm"] = True
+        if getattr(agent, "value_rms", None) is not None:
+            extra["value_rms"] = agent.value_rms.state_dict()
+            extra["value_norm"] = True
+        save_model(path, actor=agent.actor.state_dict(),
+                   critic=agent.critic.state_dict(), **extra)
+        print(f"[train] saved checkpoint to {path}  (step={step})", flush=True)
+
     try:
         for it in count():
             traj, used = agent.explore_env(env, int(cfg.algo.horizon_len), random=False)
@@ -210,14 +235,21 @@ def main(cfg: DictConfig):
                       f"return={log_info.get('reward/total/episodic_return_mean', 0.0):.3f}", flush=True)
                 next_log_at = ((global_steps // log_interval) + 1) * log_interval
 
+            # Periodic checkpoint save — name keyed by step in millions.
+            if next_ckpt_at is not None and global_steps >= next_ckpt_at:
+                step_m = next_ckpt_at // 1_000_000
+                _save_ckpt(global_steps, log_dir / f"checkpoint_{step_m:04d}M.pth")
+                next_ckpt_at = ((global_steps // ckpt_interval) + 1) * ckpt_interval
+
             if global_steps >= max_step:
                 break
 
+        # Final checkpoint — `checkpoint.pth` stays the canonical end-of-run
+        # artifact so render.py / eval.py defaults still work. obs_rms /
+        # value_rms are restored from this file at inference time.
         ckpt = log_dir / "checkpoint.pth"
-        save_model(ckpt, actor=agent.actor.state_dict(), critic=agent.critic.state_dict(),
-                   algo=str(cfg.algo.name), task=str(task))
+        _save_ckpt(global_steps, ckpt)
         dl.log_text("final/checkpoint_path", str(ckpt), step=global_steps)
-        print(f"[train] saved checkpoint to {ckpt}", flush=True)
         if bool(cfg.get("record_video", True)):
             _render_and_log_video(agent, cfg, log_dir, global_steps, use_wandb,
                                   fps=int(cfg.get("render_fps", 30)),
@@ -276,12 +308,17 @@ def _render_and_log_video(agent, cfg: DictConfig, log_dir: Path, step: int,
             if f is not None:
                 frames.append(f)
             with torch.no_grad():
+                # Normalize obs via obs_rms BEFORE calling the actor — training's
+                # rollout path normalizes first, so the actor was trained on
+                # normalized inputs. Skipping this step silently produces
+                # near-zero performance even with the correct policy.
+                obs_in = agent.obs_rms.normalize(obs) if getattr(agent, "obs_rms", None) is not None else obs
                 if hasattr(agent.actor, "get_actions"):
-                    action = agent.actor.get_actions(obs, sample=False)
+                    action = agent.actor.get_actions(obs_in, sample=False)
                     if isinstance(action, tuple):
                         action = action[0]
                 else:
-                    action = agent.actor(obs)
+                    action = agent.actor(obs_in)
             next_obs, reward, done, _info = env.step(action)
             ep_return += float(reward.item() if isinstance(reward, torch.Tensor) else reward)
             if bool(done.item() if isinstance(done, torch.Tensor) else done):
