@@ -11,6 +11,8 @@ verbatim. Adds one new prismatic articulation -- a drawer at
 limits [0, 0.15] m).
 """
 
+from pathlib import Path
+
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, RigidObjectCfg
@@ -49,11 +51,15 @@ CUBE_INIT_Z = CUBE_SIZE / 2.0  # center half a cube above table top -> base on t
 # `scale=(1.0, 1.0, 1.0)` (the old symdex spawn applied 0.3,0.6,0.5 at
 # spawn-time which is no longer needed). Same prismatic joint name
 # `base_drawer_joint`, range [0, 0.3] m, axis +X-local.
-_DRAWER_USD_PATH = "/home/steven/code/agentic/IsaacLab/nautilus/assets/drawer_no_handle/drawer_no_handle.usd"
+# Repo-relative asset paths. The file lives at
+#   <repo>/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/insert_drawer/config/franka/
+# so `parents[8]` is the repo root, then `nautilus/assets/...`.
+_NAUTILUS_ASSETS = Path(__file__).resolve().parents[8] / "nautilus" / "assets"
+_DRAWER_USD_PATH = str(_NAUTILUS_ASSETS / "drawer_no_handle" / "drawer_no_handle.usd")
 
 
 # Path to the FR3 + Franka-hand USD (mirrors StackCube).
-_FR3_USD_PATH = "/home/steven/code/agentic/IsaacLab/nautilus/assets/fr3/fr3_franka_hand.usd"
+_FR3_USD_PATH = str(_NAUTILUS_ASSETS / "fr3" / "fr3_franka_hand.usd")
 
 
 # FR3 + Franka-hand robot config -- verbatim from StackCube's Franka cfg.

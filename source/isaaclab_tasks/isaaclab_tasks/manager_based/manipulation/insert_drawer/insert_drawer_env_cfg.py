@@ -12,6 +12,7 @@ action, table, and cube; adds one new prismatic articulation (the drawer at
 """
 
 from dataclasses import MISSING
+from pathlib import Path
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -29,6 +30,15 @@ from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdF
 from isaaclab.utils import configclass
 
 from . import mdp
+
+
+# Repo-relative table asset path. This file is at
+#   <repo>/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/insert_drawer/
+# so `parents[6]` is the repo root, then `nautilus/assets/table/...`.
+_TABLE_USD_PATH = str(
+    Path(__file__).resolve().parents[6]
+    / "nautilus" / "assets" / "table" / "lab_table_instanceable_colored_rotated.usd"
+)
 
 
 ##
@@ -86,7 +96,7 @@ class InsertDrawerSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Table",
         init_state=AssetBaseCfg.InitialStateCfg(pos=[0.0, 0.0, 0.0]),
         spawn=UsdFileCfg(
-            usd_path="/home/steven/code/bidex/assets/Background/table/lab_table_instanceable_colored_rotated.usd",
+            usd_path=_TABLE_USD_PATH,
         ),
     )
 
