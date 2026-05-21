@@ -180,27 +180,57 @@ def grasping_cube_goal_distance(
     return torch.where(on_stack, 50.0 * base + 1.0, base)
 
 
-def linear_lift_stage_b(
+def linear_lift_grasping_cube(
     env: "ManagerBasedRLEnv",
     init_z: float = 0.0215,
-    target_z: float = 0.1075,
+    target_z_a: float = 0.06,
+    target_z_b: float = 0.1075,
+    contact_force_threshold: float = 1e-3,
 ) -> torch.Tensor:
-    """Dense lift reward, ACTIVE ONLY IN STATE B (cube_0 stacked on cube_1).
+    """Dense linear lift reward for the grasping cube, contact-sensor-gated.
 
-    Returns `clamp((cube_2.z - init_z) / (target_z - init_z), 0, 1)` when
-    `_cube_0_on_cube_1_predicate` is True, else 0. Linearly rewards cube_2
-    being lifted from the table (`init_z` ≈ CUBE_INIT_Z) up to the stacking
-    target height (`target_z` ≈ cube_1.z + 2·CUBE_SIZE = 0.0215 + 0.086 =
-    0.1075). Paired with raising `grasping_cube_goal_distance.minimal_height_b`
-    to the same `target_z` so that horizontal align reward only fires after
-    cube_2 has cleared the existing two-cube stack — discourages dragging
-    cube_2 sideways through cube_0/cube_1.
+    Per-state grasping-cube mux (same predicate as §5 obs / other §6
+    grasping-cube terms):
+      state A (`_cube_0_on_cube_1_predicate` False) — grasping cube = cube_0;
+        base_a = clamp((cube_0.z - init_z) / (target_z_a - init_z), 0, 1)
+                 with default ramp init_z=0.0215 → target_z_a=0.06
+                 (denominator = 0.06 − 0.0215 = 0.0385).
+        Contact gate: both fingers in contact with cube_0 (filter idx 0).
+      state B (`_cube_0_on_cube_1_predicate` True)  — grasping cube = cube_2;
+        base_b = clamp((cube_2.z - init_z) / (target_z_b - init_z), 0, 1)
+                 (target_z_b=0.1075 = cube_1.z + 2·CUBE_SIZE — above the
+                 existing two-cube stack).
+        Contact gate: both fingers in contact with cube_2 (filter idx 2).
+
+    Contact gating mirrors `insert_drawer.mdp.rewards.lift_distance`: the ramp
+    fires only when BOTH fingertip contact sensors report force > threshold
+    against the relevant cube, so the policy can't earn lift reward by
+    knocking the cube up with the body of the hand or by single-finger flicks.
+
+    Composition (matches the +1.0 state-B offset used by other §6
+    grasping-cube terms — `grasping_cube_ee_distance`, etc. — so transitioning
+    into state B never lowers reward):
+        torch.where(on_stack, 10 * base_b * gate_b + 1.0, base_a * gate_a)
     """
-    cube_2 = env.scene["cube_2"]
-    z = cube_2.data.root_pos_w[:, 2]
-    progress = ((z - init_z) / max(target_z - init_z, 1e-6)).clamp(0.0, 1.0)
     on_stack = _cube_0_on_cube_1_predicate(env)
-    return torch.where(on_stack, progress, torch.zeros_like(progress))
+    cube_0 = env.scene["cube_0"]
+    cube_2 = env.scene["cube_2"]
+    z_0 = cube_0.data.root_pos_w[:, 2]
+    z_2 = cube_2.data.root_pos_w[:, 2]
+    base_a = ((z_0 - init_z) / max(target_z_a - init_z, 1e-6)).clamp(0.0, 1.0)
+    base_b = ((z_2 - init_z) / max(target_z_b - init_z, 1e-6)).clamp(0.0, 1.0)
+
+    left = env.scene["finger_left_contact"]
+    right = env.scene["finger_right_contact"]
+    # filter_prim_paths_expr order: [Cube_0 (idx 0), Cube_1 (idx 1), Cube_2 (idx 2)]
+    left_f0 = torch.norm(left.data.force_matrix_w[:, 0, 0, :], dim=-1)
+    right_f0 = torch.norm(right.data.force_matrix_w[:, 0, 0, :], dim=-1)
+    gate_a = ((left_f0 > contact_force_threshold) & (right_f0 > contact_force_threshold)).float()
+    left_f2 = torch.norm(left.data.force_matrix_w[:, 0, 2, :], dim=-1)
+    right_f2 = torch.norm(right.data.force_matrix_w[:, 0, 2, :], dim=-1)
+    gate_b = ((left_f2 > contact_force_threshold) & (right_f2 > contact_force_threshold)).float()
+
+    return torch.where(on_stack, 10.0 * base_b * gate_b + 1.0, base_a * gate_a)
 
 
 # iter 33 — module-level per-env latch buffers (keyed by id(env), key_str).

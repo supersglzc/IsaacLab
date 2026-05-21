@@ -70,8 +70,11 @@ CUBE_MASS = 0.055        # kg
 CUBE_INIT_Z = CUBE_SIZE / 2.0  # center half a cube above table top → base on table
 
 # Path to the FR3 + Franka-hand USD converted from
-# `<agentic>/franka_description/urdfs/fr3_franka_hand.urdf`.
-_FR3_USD_PATH = "/home/steven/code/agentic/IsaacLab/nautilus/assets/fr3/fr3_franka_hand.usd"
+# `<agentic>/franka_description/urdfs/fr3_franka_hand.urdf`. Repo-relative so
+# the path resolves on any clone location.
+_FR3_USD_PATH = str(
+    Path(__file__).resolve().parents[8] / "nautilus" / "assets" / "fr3" / "fr3_franka_hand.usd"
+)
 
 # FR3 + Franka-hand robot config — built fresh (the shipped FRANKA_PANDA_*
 # cfgs assume the Isaac Sim Panda USD with `panda_*` joint/link names; the

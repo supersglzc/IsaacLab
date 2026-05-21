@@ -18,6 +18,7 @@ reward redesign in the next phase.
 """
 
 from dataclasses import MISSING
+from pathlib import Path
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
@@ -37,6 +38,15 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from . import mdp
+
+
+# Repo-relative table asset path. This file is at
+#   <repo>/source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/stack_cube/
+# so `parents[6]` is the repo root, then `nautilus/assets/table/...`.
+_TABLE_USD_PATH = str(
+    Path(__file__).resolve().parents[6]
+    / "nautilus" / "assets" / "table" / "lab_table_instanceable_colored_rotated.usd"
+)
 
 
 ##
@@ -106,7 +116,7 @@ class StackCubeSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Table",
         init_state=AssetBaseCfg.InitialStateCfg(pos=[0.0, 0.0, 0.0]),
         spawn=UsdFileCfg(
-            usd_path="/home/steven/code/bidex/assets/Background/table/lab_table_instanceable_colored_rotated.usd",
+            usd_path=_TABLE_USD_PATH,
         ),
     )
 
@@ -294,7 +304,7 @@ class RewardsCfg:
         # off the table to start aligning). state B (cube_2 grasping):
         # minimal_height_b = target_z = cube_1.z + 2·CUBE_SIZE = 0.1075 (cube_2
         # must be lifted ABOVE the existing two-cube stack before align fires)
-        # — pairs with `linear_lift_stage_b` to enforce "lift first, align
+        # — pairs with `linear_lift_grasping_cube` to enforce "lift first, align
         # second" and avoid dragging cube_2 horizontally through the stack.
         params={"std": 0.08, "minimal_height": 0.04, "minimal_height_b": 0.0875},
         weight=0.32,
@@ -318,16 +328,26 @@ class RewardsCfg:
         weight=2000.0,
     )
 
-    # Stage-2-only DENSE lift reward — gives cube_2 a linear z-progress
-    # signal between the table (`init_z=CUBE_INIT_Z=0.0215`) and the
-    # stacking target (`target_z = cube_1_z + 2·CUBE_SIZE = 0.1075`). Drives
-    # the policy to lift cube_2 STRAIGHT UP before any horizontal motion;
-    # paired with `align.minimal_height_b=0.1075`, ensures cube_2 clears the
-    # cube_0/cube_1 stack before align starts pulling it sideways.
-    linear_lift_stage_b = RewTerm(
-        func=mdp.linear_lift_stage_b,
-        params={"init_z": 0.0215, "target_z": 0.0675},
-        weight=1.0,
+    # Dense linear lift reward for the grasping cube, ACTIVE IN BOTH STAGES.
+    #   state A (grasping cube_0): linear ramp `init_z=0.0215` → `target_z_a=0.06`
+    #     (denominator 0.06 − 0.0215 = 0.0385), gated on BOTH fingers in
+    #     contact with cube_0. Term weight 0.15 → state-A peak = 0.15.
+    #   state B (grasping cube_2): linear ramp init_z → `target_z_b=0.1075`
+    #     (above the cube_0/cube_1 stack), gated on BOTH fingers in contact
+    #     with cube_2. Composed as `10·base_b·gate_b + 1.0` to match the
+    #     other §6 grasping-cube terms; state-B peak ≈ 0.15·11 = 1.65.
+    # Paired with `align.minimal_height_b=0.0875` so horizontal align reward
+    # only fires after cube_2 has cleared the existing stack — discourages
+    # dragging cube_2 sideways through cube_0/cube_1.
+    linear_lift_grasping_cube = RewTerm(
+        func=mdp.linear_lift_grasping_cube,
+        params={
+            "init_z": 0.0215,
+            "target_z_a": 0.06,
+            "target_z_b": 0.1075,
+            "contact_force_threshold": 1e-3,
+        },
+        weight=0.15,
     )
 
     # Per-step bonus when the grasping cube hovers over the stack target
