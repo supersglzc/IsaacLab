@@ -5,10 +5,9 @@
 
 """Custom event-manager terms for the stack_cube task.
 
-There are no task-specific event terms. The success geometry (cube_0 stacked
-on cube_1) is hardcoded in ``mdp.terminations.cube_0_stacked_on_cube_1``.
-Per-cube XY/Z spawn pose comes from the standard ``mdp.reset_root_state_uniform``
-terms wired in ``stack_cube_env_cfg.EventCfg``.
+There are no task-specific event terms. Per-cube XY/Z spawn pose comes from
+the standard ``mdp.reset_root_state_uniform`` terms wired in
+``stack_cube_env_cfg.EventCfg``.
 
 This module is kept (rather than deleted) so ``mdp/__init__.py``'s
 ``from .events import *`` keeps working without producing import errors.

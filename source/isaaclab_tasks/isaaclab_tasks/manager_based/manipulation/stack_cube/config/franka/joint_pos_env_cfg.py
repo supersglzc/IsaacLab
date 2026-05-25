@@ -39,7 +39,6 @@ End-effector sensor: `FrameTransformerCfg` rooted at `panda_link0` and tracking
 `mdp.cube_0_ee_distance` reward via the `ee_frame` scene entity.
 """
 
-import math
 from pathlib import Path
 
 import isaaclab.sim as sim_utils

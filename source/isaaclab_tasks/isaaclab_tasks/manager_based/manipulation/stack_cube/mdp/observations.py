@@ -5,20 +5,12 @@
 
 """Observation helpers for the stack_cube task.
 
-Edit_mode_012 (3-tier tower): the policy sees joint_pos / joint_vel / per-cube
-positions (cube_0, cube_1, cube_2 all in robot root frame) / per-pair stack
-targets (cube_0 goal = top of cube_1; cube_1 goal = top of cube_2) /
-last_action.
-
-Edit_mode_013 (§5 re-author): the policy obs is collapsed to a 4-term layout
-(joint_pos + grasping_cube_position + grasping_target_position + actions = 23).
-joint_vel and the per-cube absolute positions are dropped from the obs; a
-stateless per-step mux switches the "currently relevant" cube + target based
-on whether cube_0 is already on cube_1 (predicate mirror of
-`mdp.terminations.cube_0_stacked_on_cube_1`). The dropped obs helpers
-(`cube_*_position_in_robot_root_frame`, `stack_target_*`) are KEPT in this
-file but no longer wired into ObservationsCfg — they may still be referenced
-by §6 reward code or future edits.
+The policy obs is a 5-term layout
+(ee_pose + grasping_cube_position + grasping_target_position + gripper_pos +
+actions = 19). A stateless per-step mux switches the "currently relevant"
+cube + target based on whether cube_0 is already on cube_1
+(`_cube_0_on_cube_1_predicate` here mirrors the same predicate used by the
+§6 reward `mdp.rewards._cube_0_on_cube_1_predicate`).
 """
 from __future__ import annotations
 
@@ -69,21 +61,6 @@ def _cube_pos_in_robot_root_frame(env: "ManagerBasedRLEnv", cube_key: str) -> to
     return cube_pos_b
 
 
-def cube_0_position_in_robot_root_frame(env: "ManagerBasedRLEnv") -> torch.Tensor:
-    """cube_0 xyz in the robot root frame (LiftCube `object_position_in_robot_root_frame` mirror)."""
-    return _cube_pos_in_robot_root_frame(env, "cube_0")
-
-
-def cube_1_position_in_robot_root_frame(env: "ManagerBasedRLEnv") -> torch.Tensor:
-    """cube_1 xyz in the robot root frame."""
-    return _cube_pos_in_robot_root_frame(env, "cube_1")
-
-
-def cube_2_position_in_robot_root_frame(env: "ManagerBasedRLEnv") -> torch.Tensor:
-    """cube_2 xyz in the robot root frame."""
-    return _cube_pos_in_robot_root_frame(env, "cube_2")
-
-
 def _stack_target_in_root_frame(env: "ManagerBasedRLEnv", base_cube_key: str) -> torch.Tensor:
     """Shared helper: `base_cube.pos_w + [0, 0, CUBE_SIZE]` in the robot root frame."""
     robot: RigidObject = env.scene["robot"]
@@ -92,21 +69,6 @@ def _stack_target_in_root_frame(env: "ManagerBasedRLEnv", base_cube_key: str) ->
     target_w[:, 2] = target_w[:, 2] + CUBE_SIZE
     target_b, _ = subtract_frame_transforms(robot.data.root_pos_w, robot.data.root_quat_w, target_w)
     return target_b
-
-
-def stack_target_position_in_robot_root_frame(env: "ManagerBasedRLEnv") -> torch.Tensor:
-    """cube_0 goal = `cube_1.pos_w + [0, 0, CUBE_SIZE]` in the robot root frame.
-
-    The goal is implicit (top of cube_1) rather than command-manager-driven.
-    Kept under the historical name so the §6 reward helpers that read this
-    in observation-space stay stable.
-    """
-    return _stack_target_in_root_frame(env, "cube_1")
-
-
-def cube_1_stack_target_position_in_robot_root_frame(env: "ManagerBasedRLEnv") -> torch.Tensor:
-    """cube_1 goal = `cube_2.pos_w + [0, 0, CUBE_SIZE]` in the robot root frame."""
-    return _stack_target_in_root_frame(env, "cube_2")
 
 
 def _cube_0_on_cube_1_predicate(

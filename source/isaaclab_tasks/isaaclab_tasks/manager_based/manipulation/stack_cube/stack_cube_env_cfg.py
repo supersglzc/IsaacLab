@@ -5,16 +5,12 @@
 
 """Abstract config for the StackCube task: Franka stacks a 3-cube tower.
 
-Edit_mode_012: extended from 2-cube to 3-tier tower (cube_2 base on the
-table, cube_1 stacks on cube_2, cube_0 stacks on cube_1). Success now ANDs
-`cube_0_on_cube_1` and `cube_1_on_cube_2`; cube_dropped fires when ANY of
-cube_0/cube_1/cube_2 falls below `table_height - drop_margin`. Observation
-gains two NEW terms: `cube_1_position` (robot root frame) and
-`cube_2_position` (robot root frame). The existing `target_position` term is
-renamed `cube_0_target_position` (top of cube_1); a new
-`cube_1_target_position` term points at the top of cube_2. §2 (action) and
-§6 (reward) and §7 (DR) are untouched — reward-generator owns the 3-cube
-reward redesign in the next phase.
+Tower order (bottom-up): cube_1 (base on table) → cube_0 → cube_2 (top).
+Stage 1 success requires cube_0 stacked on cube_1; the full 3-tier tower
+additionally requires cube_2 stacked on cube_0. The §5 obs / §6 reward
+share a stateless per-step mux on the `_cube_0_on_cube_1_predicate`:
+the policy's "currently grasping" cube is cube_0 until stage 1 completes,
+then switches to cube_2.
 """
 
 from dataclasses import MISSING
@@ -23,7 +19,6 @@ from pathlib import Path
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
-from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -35,7 +30,6 @@ from isaaclab.sensors import ContactSensorCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from . import mdp
 
@@ -63,7 +57,7 @@ class StackCubeSceneCfg(InteractiveSceneCfg):
     # end-effector sensor (LiftCube convention): filled by subclass via __post_init__.
     ee_frame: FrameTransformerCfg = MISSING
     # three cubes: filled by the per-robot subclass via __post_init__.
-    # Tower: cube_2 (base on table) ← cube_1 ← cube_0 (top).
+    # Tower (bottom-up): cube_1 (base on table) → cube_0 → cube_2 (top).
     cube_0: RigidObjectCfg = MISSING
     cube_1: RigidObjectCfg = MISSING
     cube_2: RigidObjectCfg = MISSING
@@ -162,29 +156,24 @@ class ActionsCfg:
 class ObservationsCfg:
     """Observation specs — 3-tier tower, grasping-cube state-machine mux.
 
-    Edit_mode_012: extended to expose all three cubes plus two per-pair
-    targets so the policy can drive cube_0 onto cube_1 (top of tower) AND
-    cube_1 onto cube_2 (base on table). (Term order is preserved in the §5
-    re-author note below.)
-
-    Edit_mode_013 (§5 re-author): the policy obs is collapsed to a 4-term
-    layout. `joint_vel` is dropped (the `joint_vel_l2` reward still reads
-    `robot.data` directly, not the obs, so the regularizer is unaffected).
-    All per-cube absolute positions and per-pair targets are replaced by a
-    stateless per-step mux on the predicate `cube_0_on_cube_1`:
+    The policy obs uses a stateless per-step mux on the predicate
+    `_cube_0_on_cube_1_predicate` to select the "currently grasping" cube
+    and its stacking target:
 
       not-yet-stacked: grasping_cube      <- cube_0
                        grasping_target    <- cube_1.xyz + [0,0,CUBE_SIZE]
       stacked:         grasping_cube      <- cube_2
                        grasping_target    <- cube_0.xyz + [0,0,CUBE_SIZE]
 
-    New term order:
+    Term order (5-term layout, dim=19):
 
-        joint_pos                  (9,)  — mdp.joint_pos_rel (all 9 robot joints)
+        ee_pose                    (7,)  — mdp.ee_pose_in_robot_root_frame
+                                            (xyz + wxyz quat in robot root frame)
         grasping_cube_position     (3,)  — mdp.grasping_cube_position_in_robot_root_frame
         grasping_target_position   (3,)  — mdp.grasping_target_position_in_robot_root_frame
+        gripper_pos                (2,)  — mdp.joint_pos over `fr3_finger.*`
         actions                    (4,)  — mdp.last_action (3 xyz + 1 gripper)
-        Total = 9+3+3+4 = 19.
+        Total = 7+3+3+2+4 = 19.
 
     enable_corruption=True (LiftCube design preserved).
     """
@@ -279,8 +268,7 @@ class RewardsCfg:
         action_rate                                                     w=-2e-6
         joint_vel                                                       w=-2e-6
 
-    Composer: sum. Legacy cube_0_* / cube_2_* / three_tier_tower_* helpers
-    in `mdp/rewards.py` are PRESERVED but unreferenced — kept for rollback.
+    Composer: sum.
     """
 
     # Two-band reach:
@@ -302,10 +290,11 @@ class RewardsCfg:
         func=mdp.grasping_cube_goal_distance,
         # state A (cube_0 grasping): minimal_height = 0.04 (cube must be lifted
         # off the table to start aligning). state B (cube_2 grasping):
-        # minimal_height_b = target_z = cube_1.z + 2·CUBE_SIZE = 0.1075 (cube_2
-        # must be lifted ABOVE the existing two-cube stack before align fires)
-        # — pairs with `linear_lift_grasping_cube` to enforce "lift first, align
-        # second" and avoid dragging cube_2 horizontally through the stack.
+        # minimal_height_b = 0.0875 ≈ target_z (0.1075 = cube_1.z + 2·CUBE_SIZE)
+        # minus a ~2 cm safety margin — cube_2 must be lifted to within 2 cm of
+        # the cube_0-top stacking height before align fires. Pairs with
+        # `linear_lift_grasping_cube` to enforce "lift first, align second" and
+        # avoid dragging cube_2 horizontally through the existing stack.
         params={"std": 0.08, "minimal_height": 0.04, "minimal_height_b": 0.0875},
         weight=0.32,
     )
@@ -348,17 +337,6 @@ class RewardsCfg:
             "contact_force_threshold": 1e-3,
         },
         weight=0.15,
-    )
-
-    # Per-step bonus when the grasping cube hovers over the stack target
-    # (xy < 2 cm, |z| < 3 cm) AND the policy outputs an "open gripper"
-    # action this step. Modest weight: the success_bonus (200) and
-    # tower_bonus (2000) still dominate, but this nudges the policy to
-    # release at the right moment instead of squeezing forever.
-    release_bonus = RewTerm(
-        func=mdp.release_bonus_in_drop_zone,
-        params={"xy_threshold": 0.02, "z_threshold": 0.03},
-        weight=0.0,
     )
 
 
@@ -411,14 +389,13 @@ class StackCubeEnvCfg(ManagerBasedRLEnvCfg):
     commands = None
 
     def __post_init__(self):
-        """LiftCube timing: 100 Hz physics / decimation 2 / 5 s episode = 250 control steps."""
+        """Timing: 120 Hz physics / decimation 6 → 20 Hz control / 9 s episode = 180 control steps."""
         self.decimation = 6
         self.episode_length_s = 9.0
-        # Simulation — LiftCube canonical
-        self.sim.dt = 1 / 120  # 100 Hz
+        # Simulation
+        self.sim.dt = 1 / 120  # 120 Hz physics
         self.sim.render_interval = self.decimation
         # Physics knobs — LiftCube canonical
-        self.sim.physx.bounce_threshold_velocity = 0.2
         self.sim.physx.bounce_threshold_velocity = 0.01
         self.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 1024 * 1024 * 4
         self.sim.physx.gpu_total_aggregate_pairs_capacity = 16 * 1024
