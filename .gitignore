@@ -74,6 +74,6 @@ tests/
 **/tactile_record/*
 **/gelsight_r15_data/*
 
-naultilus/outputs
-naultilus/task-creation
-naultilus/
+nautilus/outputs
+nautilus/task-creation
+nautilus/

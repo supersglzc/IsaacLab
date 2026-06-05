@@ -28,6 +28,7 @@ from isaaclab.sensors import ContactSensorCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import FrameTransformerCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.noise import GaussianNoiseCfg as Gnoise
 
 from . import mdp
 
@@ -164,12 +165,15 @@ class ObservationsCfg:
 
     @configclass
     class PolicyCfg(ObsGroup):
+        # §7 group 3 — additive Gaussian observation noise (mean 0, std 0.01) on
+        # every active obs term. enable_corruption=True (set below) activates these.
         ee_pose_0 = ObsTerm(
             func=mdp.ee_pose_in_robot_root_frame,
             params={
                 "robot_cfg": SceneEntityCfg("robot_0"),
                 "ee_frame_cfg": SceneEntityCfg("ee_frame_0"),
             },
+            noise=Gnoise(mean=0.0, std=0.01),
         )
         ee_pose_1 = ObsTerm(
             func=mdp.ee_pose_in_robot_root_frame,
@@ -177,18 +181,21 @@ class ObservationsCfg:
                 "robot_cfg": SceneEntityCfg("robot_1"),
                 "ee_frame_cfg": SceneEntityCfg("ee_frame_1"),
             },
+            noise=Gnoise(mean=0.0, std=0.01),
         )
-        box_position_in_world = ObsTerm(func=mdp.box_position_in_world)
-        box_quat_in_world = ObsTerm(func=mdp.box_quat_in_world)
+        box_position_in_world = ObsTerm(func=mdp.box_position_in_world, noise=Gnoise(mean=0.0, std=0.01))
+        box_quat_in_world = ObsTerm(func=mdp.box_quat_in_world, noise=Gnoise(mean=0.0, std=0.01))
         gripper_joint_pos_0 = ObsTerm(
             func=mdp.joint_pos,
             params={"asset_cfg": SceneEntityCfg("robot_0", joint_names=["fr3_finger.*"])},
+            noise=Gnoise(mean=0.0, std=0.01),
         )
         gripper_joint_pos_1 = ObsTerm(
             func=mdp.joint_pos,
             params={"asset_cfg": SceneEntityCfg("robot_1", joint_names=["fr3_finger.*"])},
+            noise=Gnoise(mean=0.0, std=0.01),
         )
-        last_action = ObsTerm(func=mdp.last_action)
+        last_action = ObsTerm(func=mdp.last_action, noise=Gnoise(mean=0.0, std=0.01))
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -236,6 +243,46 @@ class EventCfg:
             "pose_range": {"x": (-0.03, 0.03), "y": (-0.03, 0.03), "z": (0.0, 0.0)},
             "velocity_range": {},
             "asset_cfg": SceneEntityCfg("box"),
+        },
+    )
+
+    # === §7 Domain randomization ===
+    # Schedule = "reset": a fresh value is sampled once per episode per env and
+    # held constant within the episode. Multiplicative (operation="scale") range
+    # (0.9, 1.1) on body mass for both arms and the box. The scene is dual-arm
+    # (robot_0 / robot_1) with no asset named "robot", so group 1 is wired twice.
+
+    # Group 1 — robot link/base mass (per arm).
+    robot_0_link_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("robot_0", body_names=".*"),
+            "mass_distribution_params": (0.9, 1.1),
+            "operation": "scale",
+            "recompute_inertia": True,
+        },
+    )
+    robot_1_link_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("robot_1", body_names=".*"),
+            "mass_distribution_params": (0.9, 1.1),
+            "operation": "scale",
+            "recompute_inertia": True,
+        },
+    )
+
+    # Group 2 — box mass.
+    box_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass,
+        mode="reset",
+        params={
+            "asset_cfg": SceneEntityCfg("box", body_names=".*"),
+            "mass_distribution_params": (0.9, 1.1),
+            "operation": "scale",
+            "recompute_inertia": True,
         },
     )
 
